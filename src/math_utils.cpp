@@ -249,12 +249,49 @@ float lloyds_iter(float *data, size_t num_points, size_t dim, float *centers, si
         closest_center = new uint32_t[num_points];
     if (closest_docs == NULL)
         closest_docs = new std::vector<size_t>[num_centers];
-    else
-        for (size_t c = 0; c < num_centers; ++c)
-            closest_docs[c].clear();
 
-    math_utils::compute_closest_centers(data, num_points, dim, centers, num_centers, 1, closest_center, closest_docs,
-                                        docs_l2sq);
+    // Store previous cluster sizes for balanced k-means penalty
+    std::vector<size_t> prev_cluster_sizes(num_centers);
+    for (size_t i = 0; i < num_centers; ++i)
+    {
+        prev_cluster_sizes[i] = closest_docs[i].size();
+    }
+
+    // Clear closest_docs for the new assignment
+    for (size_t c = 0; c < num_centers; ++c)
+        closest_docs[c].clear();
+
+    // Balanced k-means assignment step.
+    // Using previous iteration's cluster sizes to calculate penalty, which allows
+    // parallelization.
+    const float lambda = 1.0f; // Regularization parameter
+
+#pragma omp parallel for schedule(static, 8192)
+    for (int64_t i = 0; i < (int64_t)num_points; i++)
+    {
+        float min_cost = std::numeric_limits<float>::max();
+        uint32_t best_center_id = 0;
+        for (size_t j = 0; j < num_centers; j++)
+        {
+            float dist_sq = math_utils::calc_distance(data + i * dim, centers + j * dim, dim);
+            // Penalty is based on the change in the balancing term if we add the
+            // point to the cluster.
+            float penalty = 2.0f * lambda * (float)prev_cluster_sizes[j];
+            float cost = dist_sq + penalty;
+            if (cost < min_cost)
+            {
+                min_cost = cost;
+                best_center_id = (uint32_t)j;
+            }
+        }
+        closest_center[i] = best_center_id;
+    }
+
+    // Populate closest_docs based on closest_center array (sequentially)
+    for (size_t i = 0; i < num_points; ++i)
+    {
+        closest_docs[closest_center[i]].push_back(i);
+    }
 
     memset(centers, 0, sizeof(float) * (size_t)num_centers * (size_t)dim);
 
@@ -298,6 +335,17 @@ float lloyds_iter(float *data, size_t num_points, size_t dim, float *centers, si
         for (size_t chunk = 0; chunk < nchunks; ++chunk)
             residual += residuals[chunk * BUF_PAD];
     }
+
+    // Add balancing term to the residual
+    double balancing_term = 0.0;
+    double ideal_cluster_size = (double)num_points / num_centers;
+    for (size_t c = 0; c < num_centers; ++c)
+    {
+        double cluster_size_diff = (double)closest_docs[c].size() - ideal_cluster_size;
+        balancing_term += cluster_size_diff * cluster_size_diff;
+    }
+
+    residual += lambda * (float)balancing_term;
 
     return residual;
 }
