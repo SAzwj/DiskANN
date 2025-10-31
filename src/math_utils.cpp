@@ -240,7 +240,7 @@ namespace kmeans
 // closest_docs == NULL, will allocate memory and return.
 
 float lloyds_iter(float *data, size_t num_points, size_t dim, float *centers, size_t num_centers, float *docs_l2sq,
-                  std::vector<size_t> *closest_docs, uint32_t *&closest_center)
+                  std::vector<size_t> *closest_docs, uint32_t *&closest_center, bool enable_balancing)
 {
     bool compute_residual = true;
     // Timer timer;
@@ -253,10 +253,6 @@ float lloyds_iter(float *data, size_t num_points, size_t dim, float *centers, si
     // Clear closest_docs for the new assignment
     for (size_t c = 0; c < num_centers; ++c)
         closest_docs[c].clear();
-
-    // Balanced k-means assignment step.
-    const float lambda = 0.01f; // Regularization parameter
-    const double ideal_cluster_size = (double)num_points / num_centers;
 
     math_utils::compute_closest_centers(data, num_points, dim, centers, num_centers, 1, closest_center, closest_docs,
                                         docs_l2sq);
@@ -310,15 +306,21 @@ float lloyds_iter(float *data, size_t num_points, size_t dim, float *centers, si
             residual += residuals[chunk * BUF_PAD];
     }
 
-    // Add balancing term to the residual
-    double balancing_term = 0.0;
-    for (size_t c = 0; c < num_centers; ++c)
+    if (enable_balancing)
     {
-        double cluster_size_diff = (double)closest_docs[c].size() - ideal_cluster_size;
-        balancing_term += cluster_size_diff * cluster_size_diff;
-    }
+        // Balanced k-means assignment step.
+        const float lambda = 0.01f; // Regularization parameter
+        const double ideal_cluster_size = (double)num_points / num_centers;
+        // Add balancing term to the residual
+        double balancing_term = 0.0;
+        for (size_t c = 0; c < num_centers; ++c)
+        {
+            double cluster_size_diff = (double)closest_docs[c].size() - ideal_cluster_size;
+            balancing_term += cluster_size_diff * cluster_size_diff;
+        }
 
-    residual += lambda * (float)balancing_term;
+        residual += lambda * (float)balancing_term;
+    }
 
     return residual;
 }
@@ -331,7 +333,8 @@ float lloyds_iter(float *data, size_t num_points, size_t dim, float *centers, si
 // Final centers are output in centers as row major num_centers * dim
 //
 float run_lloyds(float *data, size_t num_points, size_t dim, float *centers, const size_t num_centers,
-                 const size_t max_reps, std::vector<size_t> *closest_docs, uint32_t *closest_center)
+                 const size_t max_reps, std::vector<size_t> *closest_docs, uint32_t *closest_center,
+                 bool enable_balancing)
 {
     float residual = std::numeric_limits<float>::max();
     bool ret_closest_docs = true;
@@ -356,7 +359,8 @@ float run_lloyds(float *data, size_t num_points, size_t dim, float *centers, con
     {
         old_residual = residual;
 
-        residual = lloyds_iter(data, num_points, dim, centers, num_centers, docs_l2sq, closest_docs, closest_center);
+        residual = lloyds_iter(data, num_points, dim, centers, num_centers, docs_l2sq, closest_docs, closest_center,
+                               enable_balancing);
 
         if (i > 0 && residual > old_residual)
         {
