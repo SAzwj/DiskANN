@@ -1,7 +1,7 @@
 #pragma once
-
-#include "common_includes.h"
-#include "parameters.h"
+#include <cstdint>
+#include <string>
+#include "ann_exception.h"
 
 namespace diskann
 {

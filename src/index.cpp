@@ -3,13 +3,9 @@
 
 #include <omp.h>
 
-#include <type_traits>
-
 #include "boost/dynamic_bitset.hpp"
 #include "index_factory.h"
-#include "memory_mapper.h"
 #include "timer.h"
-#include "tsl/robin_map.h"
 #include "tsl/robin_set.h"
 #include "windows_customizations.h"
 #include "tag_uint128.h"
@@ -785,7 +781,7 @@ bool Index<T, TagT, LabelT>::detect_common_filters(uint32_t point_id, bool searc
         }
     }
     // intersection empty; proceed to check the universal label logic
-    
+
     if (_use_universal_label)
     {
         if (!search_invocation)
@@ -1749,7 +1745,6 @@ void Index<T, TagT, LabelT>::build(const std::string &data_file, const size_t nu
                                    IndexFilterParams &filter_params)
 {
     size_t points_to_load = num_points_to_load == 0 ? _max_points : num_points_to_load;
-
     auto s = std::chrono::high_resolution_clock::now();
     if (filter_params.label_file == "")
     {

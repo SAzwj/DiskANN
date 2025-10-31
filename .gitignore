@@ -378,3 +378,6 @@ gperftools
 
 # Rust
 rust/target
+
+.data
+AnyBuildLogs
