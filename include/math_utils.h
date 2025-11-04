@@ -54,6 +54,8 @@ void compute_closest_centers(float *data, size_t num_points, size_t dim, float *
 void process_residuals(float *data_load, size_t num_points, size_t dim, float *cur_pivot_data, size_t num_centers,
                        uint32_t *closest_centers, bool to_subtract);
 
+DISKANN_DLLEXPORT float estimate_avg_dist_sq(float *data, size_t num_points, size_t dim);
+
 } // namespace math_utils
 
 namespace kmeans

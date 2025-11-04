@@ -226,6 +226,30 @@ void process_residuals(float *data_load, size_t num_points, size_t dim, float *c
     }
 }
 
+float estimate_avg_dist_sq(float *data, size_t num_points, size_t dim)
+{
+    if (num_points == 0)
+    {
+        return 0.0f;
+    }
+
+    const size_t num_samples = 1000;
+    double avg_dist_sq = 0.0;
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<size_t> distrib(0, num_points - 1);
+
+    for (size_t i = 0; i < num_samples; ++i)
+    {
+        size_t idx1 = distrib(gen);
+        size_t idx2 = distrib(gen);
+        avg_dist_sq += calc_distance(data + idx1 * dim, data + idx2 * dim, dim);
+    }
+
+    return (float)(avg_dist_sq / num_samples);
+}
+
 } // namespace math_utils
 
 namespace kmeans
@@ -309,7 +333,16 @@ float lloyds_iter(float *data, size_t num_points, size_t dim, float *centers, si
     if (enable_balancing)
     {
         // Balanced k-means assignment step.
-        const float lambda = 0.01f; // Regularization parameter
+        // Dynamically calculate lambda to match the scale of the data.
+        float avg_dist_sq = math_utils::estimate_avg_dist_sq(data, num_points, dim);
+        // The balancing penalty for a cluster size deviation of 1 should be
+        // on the same order of magnitude as the typical squared distance between points.
+        // Penalty = lambda * (cluster_size_diff)^2.
+        // For a diff of 1, Penalty = lambda.
+        // Thus, we set lambda to be proportional to the average squared distance.
+        // A tunable coefficient can be used to adjust the strength of the balancing term.
+        const float balancing_coefficient = 1.0f;
+        const float lambda = balancing_coefficient * avg_dist_sq;
         const double ideal_cluster_size = (double)num_points / num_centers;
         // Add balancing term to the residual
         double balancing_term = 0.0;
