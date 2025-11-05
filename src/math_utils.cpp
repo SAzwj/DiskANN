@@ -61,10 +61,11 @@ void rotate_data_randomly(float *data, size_t num_points, size_t dim, float *rot
 // Default value of k is 1
 
 // Ideally used only by compute_closest_centers
-void compute_closest_centers_in_block(const float *const data, const size_t num_points, const size_t dim,
-                                      const float *const centers, const size_t num_centers,
-                                      const float *const docs_l2sq, const float *const centers_l2sq,
-                                      uint32_t *center_index, float *const dist_matrix, size_t k)
+void compute_closest_centers_in_block_with_distances(const float *const data, const size_t num_points, const size_t dim,
+                                                     const float *const centers, const size_t num_centers,
+                                                     const float *const docs_l2sq, const float *const centers_l2sq,
+                                                     uint32_t *center_index, float *center_dists,
+                                                     float *const dist_matrix, size_t k)
 {
     if (k > num_centers)
     {
@@ -108,6 +109,7 @@ void compute_closest_centers_in_block(const float *const data, const size_t num_
                     min = current[j];
                 }
             }
+            center_dists[i] = min;
         }
     }
     else
@@ -126,12 +128,25 @@ void compute_closest_centers_in_block(const float *const data, const size_t num_
             {
                 PivotContainer this_piv = top_k_queue.top();
                 center_index[i * k + j] = (uint32_t)this_piv.piv_id;
+                center_dists[i * k + j] = this_piv.piv_dist;
                 top_k_queue.pop();
             }
         }
     }
     delete[] ones_a;
     delete[] ones_b;
+}
+
+// Ideally used only by compute_closest_centers
+void compute_closest_centers_in_block(const float *const data, const size_t num_points, const size_t dim,
+                                      const float *const centers, const size_t num_centers,
+                                      const float *const docs_l2sq, const float *const centers_l2sq,
+                                      uint32_t *center_index, float *const dist_matrix, size_t k)
+{
+    float *center_dists = new float[num_points * k];
+    compute_closest_centers_in_block_with_distances(data, num_points, dim, centers, num_centers, docs_l2sq,
+                                                    centers_l2sq, center_index, center_dists, dist_matrix, k);
+    delete[] center_dists;
 }
 
 // Given data in num_points * new_dim row major
@@ -197,6 +212,69 @@ void compute_closest_centers(float *data, size_t num_points, size_t dim, float *
         }
     }
     delete[] closest_centers;
+    delete[] distance_matrix;
+    delete[] pivs_norms_squared;
+    if (!is_norm_given_for_pts)
+        delete[] pts_norms_squared;
+}
+
+void compute_closest_centers_with_distances(float *data, size_t num_points, size_t dim, float *pivot_data,
+                                            size_t num_centers, size_t k, uint32_t *closest_centers_ivf,
+                                            float *closest_centers_dists, std::vector<size_t> *inverted_index,
+                                            float *pts_norms_squared)
+{
+    if (k > num_centers)
+    {
+        diskann::cout << "ERROR: k (" << k << ") > num_center(" << num_centers << ")" << std::endl;
+        return;
+    }
+
+    bool is_norm_given_for_pts = (pts_norms_squared != NULL);
+
+    float *pivs_norms_squared = new float[num_centers];
+    if (!is_norm_given_for_pts)
+        pts_norms_squared = new float[num_points];
+
+    size_t PAR_BLOCK_SIZE = num_points;
+    size_t N_BLOCKS =
+        (num_points % PAR_BLOCK_SIZE) == 0 ? (num_points / PAR_BLOCK_SIZE) : (num_points / PAR_BLOCK_SIZE) + 1;
+
+    if (!is_norm_given_for_pts)
+        math_utils::compute_vecs_l2sq(pts_norms_squared, data, num_points, dim);
+    math_utils::compute_vecs_l2sq(pivs_norms_squared, pivot_data, num_centers, dim);
+    uint32_t *closest_centers = new uint32_t[PAR_BLOCK_SIZE * k];
+    float *closest_dists = new float[PAR_BLOCK_SIZE * k];
+    float *distance_matrix = new float[num_centers * PAR_BLOCK_SIZE];
+
+    for (size_t cur_blk = 0; cur_blk < N_BLOCKS; cur_blk++)
+    {
+        float *data_cur_blk = data + cur_blk * PAR_BLOCK_SIZE * dim;
+        size_t num_pts_blk = std::min(PAR_BLOCK_SIZE, num_points - cur_blk * PAR_BLOCK_SIZE);
+        float *pts_norms_blk = pts_norms_squared + cur_blk * PAR_BLOCK_SIZE;
+
+        math_utils::compute_closest_centers_in_block_with_distances(data_cur_blk, num_pts_blk, dim, pivot_data,
+                                                                    num_centers, pts_norms_blk, pivs_norms_squared,
+                                                                    closest_centers, closest_dists, distance_matrix, k);
+
+#pragma omp parallel for schedule(static, 1)
+        for (int64_t j = cur_blk * PAR_BLOCK_SIZE;
+             j < std::min((int64_t)num_points, (int64_t)((cur_blk + 1) * PAR_BLOCK_SIZE)); j++)
+        {
+            for (size_t l = 0; l < k; l++)
+            {
+                size_t this_center_id = closest_centers[(j - cur_blk * PAR_BLOCK_SIZE) * k + l];
+                closest_centers_ivf[j * k + l] = (uint32_t)this_center_id;
+                closest_centers_dists[j * k + l] = closest_dists[(j - cur_blk * PAR_BLOCK_SIZE) * k + l];
+                if (inverted_index != NULL)
+                {
+#pragma omp critical
+                    inverted_index[this_center_id].push_back(j);
+                }
+            }
+        }
+    }
+    delete[] closest_centers;
+    delete[] closest_dists;
     delete[] distance_matrix;
     delete[] pivs_norms_squared;
     if (!is_norm_given_for_pts)
@@ -341,7 +419,7 @@ float lloyds_iter(float *data, size_t num_points, size_t dim, float *centers, si
         // For a diff of 1, Penalty = lambda.
         // Thus, we set lambda to be proportional to the average squared distance.
         // A tunable coefficient can be used to adjust the strength of the balancing term.
-        const float balancing_coefficient = 1.0f;
+        const float balancing_coefficient = 0.8f;
         const float lambda = balancing_coefficient * avg_dist_sq;
         const double ideal_cluster_size = (double)num_points / num_centers;
         // Add balancing term to the residual

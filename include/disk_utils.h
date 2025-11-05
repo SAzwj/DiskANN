@@ -75,14 +75,12 @@ DISKANN_DLLEXPORT std::string preprocess_base_file(const std::string &infile, co
                                                    diskann::Metric &distMetric);
 
 template <typename T, typename LabelT = uint32_t>
-DISKANN_DLLEXPORT int build_merged_vamana_index(std::string base_file, diskann::Metric _compareMetric, uint32_t L,
-                                                uint32_t R, double sampling_rate, double ram_budget,
-                                                std::string mem_index_path, std::string medoids_file,
-                                                std::string centroids_file, size_t build_pq_bytes, bool use_opq,
-                                                uint32_t num_threads, bool use_filters = false,
-                                                const std::string &label_file = std::string(""),
-                                                const std::string &labels_to_medoids_file = std::string(""),
-                                                const std::string &universal_label = "", const uint32_t Lf = 0);
+DISKANN_DLLEXPORT int build_merged_vamana_index(
+    std::string base_file, diskann::Metric _compareMetric, uint32_t L, uint32_t R, double sampling_rate,
+    double ram_budget, std::string mem_index_path, std::string medoids_file, std::string centroids_file,
+    size_t build_pq_bytes, bool use_opq, uint32_t num_threads, bool use_filters = false,
+    const std::string &label_file = std::string(""), const std::string &labels_to_medoids_file = std::string(""),
+    const std::string &universal_label = "", const uint32_t Lf = 0, float epsilon = 0.0f);
 
 template <typename T, typename LabelT>
 DISKANN_DLLEXPORT uint32_t optimize_beamwidth(std::unique_ptr<diskann::PQFlashIndex<T, LabelT>> &_pFlashIndex,
@@ -97,8 +95,8 @@ DISKANN_DLLEXPORT int build_disk_index(
     const std::string &codebook_prefix = "", // default is empty for no codebook pass in
     bool use_filters = false,
     const std::string &label_file = std::string(""), // default is empty string for no label_file
-    const std::string &universal_label = "", const uint32_t filter_threshold = 0,
-    const uint32_t Lf = 0); // default is empty string for no universal label
+    const std::string &universal_label = "", const uint32_t filter_threshold = 0, const uint32_t Lf = 0,
+    float epsilon = 0.0f); // default is empty string for no universal label
 
 template <typename T>
 DISKANN_DLLEXPORT void create_disk_layout(const std::string base_file, const std::string mem_index_file,
