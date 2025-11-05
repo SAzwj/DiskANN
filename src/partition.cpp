@@ -28,6 +28,9 @@
 // block size for reading/ processing large files and matrices in blocks
 #define BLOCK_SIZE 5000000
 
+// Manually tunable parameters for partitioning
+const float PARTITION_EPSILON = 0.2f;
+
 // #define SAVE_INFLATED_PQ true
 
 template <typename T>
@@ -93,7 +96,7 @@ void gen_random_slice(const std::string base_file, const std::string output_pref
 
 template <typename T>
 int shard_data_into_clusters(const std::string data_file, float *pivots, const size_t num_centers, const size_t dim,
-                             const size_t k_base, std::string prefix_path, float epsilon)
+                             std::string prefix_path, float epsilon)
 {
     size_t read_blk_size = 64 * 1024 * 1024;
     //  uint64_t write_blk_size = 64 * 1024 * 1024;
@@ -130,8 +133,9 @@ int shard_data_into_clusters(const std::string data_file, float *pivots, const s
     }
 
     size_t block_size = num_points <= BLOCK_SIZE ? num_points : BLOCK_SIZE;
-    std::unique_ptr<uint32_t[]> block_closest_centers = std::make_unique<uint32_t[]>(block_size * k_base);
-    std::unique_ptr<float[]> block_closest_dists = std::make_unique<float[]>(block_size * k_base);
+    const size_t candidate_pool_size = std::min((size_t)20, num_centers);
+    std::unique_ptr<uint32_t[]> block_closest_centers = std::make_unique<uint32_t[]>(block_size * candidate_pool_size);
+    std::unique_ptr<float[]> block_closest_dists = std::make_unique<float[]>(block_size * candidate_pool_size);
     std::unique_ptr<T[]> block_data_T = std::make_unique<T[]>(block_size * dim);
     std::unique_ptr<float[]> block_data_float = std::make_unique<float[]>(block_size * dim);
 
@@ -147,24 +151,38 @@ int shard_data_into_clusters(const std::string data_file, float *pivots, const s
         diskann::convert_types<T, float>(block_data_T.get(), block_data_float.get(), cur_blk_size, dim);
 
         math_utils::compute_closest_centers_with_distances(block_data_float.get(), cur_blk_size, dim, pivots,
-                                                           num_centers, k_base, block_closest_centers.get(),
-                                                           block_closest_dists.get());
+                                                           num_centers, candidate_pool_size,
+                                                           block_closest_centers.get(), block_closest_dists.get());
 
+        diskann::Distance<float> *dist_cmp = new diskann::DistanceL2Float();
         for (size_t p = 0; p < cur_blk_size; p++)
         {
-            float nearest_dist = block_closest_dists[p * k_base];
-            for (size_t p1 = 0; p1 < k_base; p1++)
+            // Epsilon pre-filter
+            std::vector<uint32_t> initial_candidates;
+            std::vector<float> initial_candidates_dists;
+            float nearest_dist = block_closest_dists[p * candidate_pool_size];
+            const float epsilon_ball_multiplier = (1.0f + PARTITION_EPSILON) * (1.0f + PARTITION_EPSILON);
+            for (size_t p1 = 0; p1 < candidate_pool_size; p1++)
             {
-                if (block_closest_dists[p * k_base + p1] <= (1 + epsilon) * nearest_dist)
+                if (block_closest_dists[p * candidate_pool_size + p1] <= epsilon_ball_multiplier * nearest_dist)
                 {
-                    size_t shard_id = block_closest_centers[p * k_base + p1];
-                    uint32_t original_point_map_id = (uint32_t)(start_id + p);
-                    shard_data_writer[shard_id].write((char *)(block_data_T.get() + p * dim), sizeof(T) * dim);
-                    shard_idmap_writer[shard_id].write((char *)&original_point_map_id, sizeof(uint32_t));
-                    shard_counts[shard_id]++;
+                    initial_candidates.push_back(block_closest_centers[p * candidate_pool_size + p1]);
+                    initial_candidates_dists.push_back(block_closest_dists[p * candidate_pool_size + p1]);
                 }
             }
+
+            std::vector<uint32_t> assigned_shards = initial_candidates;
+
+            // Write data
+            for (const auto &shard_id : assigned_shards)
+            {
+                uint32_t original_point_map_id = (uint32_t)(start_id + p);
+                shard_data_writer[shard_id].write((char *)(block_data_T.get() + p * dim), sizeof(T) * dim);
+                shard_idmap_writer[shard_id].write((char *)&original_point_map_id, sizeof(uint32_t));
+                shard_counts[shard_id]++;
+            }
         }
+        delete dist_cmp;
     }
 
     size_t total_count = 0;
@@ -182,8 +200,8 @@ int shard_data_into_clusters(const std::string data_file, float *pivots, const s
         shard_idmap_writer[i].close();
     }
 
-    diskann::cout << "\n Partitioned " << num_points << " with replication factor " << k_base << " to get "
-                  << total_count << " points across " << num_centers << " shards " << std::endl;
+    diskann::cout << "\n Partitioned " << num_points << " to get " << total_count << " points across " << num_centers
+                  << " shards " << std::endl;
     return 0;
 }
 
@@ -227,9 +245,10 @@ void gen_random_slice(const T *inputdata, size_t npts, size_t ndims, double p_va
 }
 
 int estimate_cluster_sizes(float *test_data_float, size_t num_test, float *pivots, const size_t num_centers,
-                           const size_t test_dim, const size_t k_base, std::vector<size_t> &cluster_sizes)
+                           const size_t test_dim, std::vector<size_t> &cluster_sizes)
 {
     cluster_sizes.clear();
+    const size_t k_base = 1; // k_base is 1 for estimation
 
     size_t *shard_counts = new size_t[num_centers];
 
@@ -332,7 +351,7 @@ void gen_random_slice(const std::string data_file, double p_val, float *&sampled
 // each shard, and retrieve the actual vectors on demand.
 template <typename T>
 int shard_data_into_clusters_only_ids(const std::string data_file, float *pivots, const size_t num_centers,
-                                      const size_t dim, const size_t k_base, std::string prefix_path)
+                                      const size_t dim, std::string prefix_path, float epsilon)
 {
     size_t read_blk_size = 64 * 1024 * 1024;
     //  uint64_t write_blk_size = 64 * 1024 * 1024;
@@ -365,7 +384,9 @@ int shard_data_into_clusters_only_ids(const std::string data_file, float *pivots
     }
 
     size_t block_size = num_points <= BLOCK_SIZE ? num_points : BLOCK_SIZE;
-    std::unique_ptr<uint32_t[]> block_closest_centers = std::make_unique<uint32_t[]>(block_size * k_base);
+    const size_t candidate_pool_size = std::min((size_t)20, num_centers);
+    std::unique_ptr<uint32_t[]> block_closest_centers = std::make_unique<uint32_t[]>(block_size * candidate_pool_size);
+    std::unique_ptr<float[]> block_closest_dists = std::make_unique<float[]>(block_size * candidate_pool_size);
     std::unique_ptr<T[]> block_data_T = std::make_unique<T[]>(block_size * dim);
     std::unique_ptr<float[]> block_data_float = std::make_unique<float[]>(block_size * dim);
 
@@ -380,19 +401,38 @@ int shard_data_into_clusters_only_ids(const std::string data_file, float *pivots
         base_reader.read((char *)block_data_T.get(), sizeof(T) * (cur_blk_size * dim));
         diskann::convert_types<T, float>(block_data_T.get(), block_data_float.get(), cur_blk_size, dim);
 
-        math_utils::compute_closest_centers(block_data_float.get(), cur_blk_size, dim, pivots, num_centers, k_base,
-                                            block_closest_centers.get());
+        math_utils::compute_closest_centers_with_distances(block_data_float.get(), cur_blk_size, dim, pivots,
+                                                           num_centers, candidate_pool_size,
+                                                           block_closest_centers.get(), block_closest_dists.get());
 
+        diskann::Distance<float> *dist_cmp = new diskann::DistanceL2Float();
         for (size_t p = 0; p < cur_blk_size; p++)
         {
-            for (size_t p1 = 0; p1 < k_base; p1++)
+            // Epsilon pre-filter
+            std::vector<uint32_t> initial_candidates;
+            std::vector<float> initial_candidates_dists;
+            float nearest_dist = block_closest_dists[p * candidate_pool_size];
+            const float epsilon_ball_multiplier = (1.0f + PARTITION_EPSILON) * (1.0f + PARTITION_EPSILON);
+            for (size_t p1 = 0; p1 < candidate_pool_size; p1++)
             {
-                size_t shard_id = block_closest_centers[p * k_base + p1];
+                if (block_closest_dists[p * candidate_pool_size + p1] <= epsilon_ball_multiplier * nearest_dist)
+                {
+                    initial_candidates.push_back(block_closest_centers[p * candidate_pool_size + p1]);
+                    initial_candidates_dists.push_back(block_closest_dists[p * candidate_pool_size + p1]);
+                }
+            }
+
+            std::vector<uint32_t> assigned_shards = initial_candidates;
+
+            // Write data
+            for (const auto &shard_id : assigned_shards)
+            {
                 uint32_t original_point_map_id = (uint32_t)(start_id + p);
                 shard_idmap_writer[shard_id].write((char *)&original_point_map_id, sizeof(uint32_t));
                 shard_counts[shard_id]++;
             }
         }
+        delete dist_cmp;
     }
 
     size_t total_count = 0;
@@ -407,8 +447,8 @@ int shard_data_into_clusters_only_ids(const std::string data_file, float *pivots
         shard_idmap_writer[i].close();
     }
 
-    diskann::cout << "\n Partitioned " << num_points << " with replication factor " << k_base << " to get "
-                  << total_count << " points across " << num_centers << " shards " << std::endl;
+    diskann::cout << "\n Partitioned " << num_points << " to get " << total_count << " points across " << num_centers
+                  << " shards " << std::endl;
     return 0;
 }
 
@@ -486,7 +526,7 @@ int retrieve_shard_data_from_ids(const std::string data_file, std::string idmap_
 
 template <typename T>
 int partition(const std::string data_file, const float sampling_rate, size_t num_parts, size_t max_k_means_reps,
-              const std::string prefix_path, size_t k_base, float epsilon)
+              const std::string prefix_path, float epsilon)
 {
     size_t train_dim;
     size_t num_train;
@@ -519,7 +559,7 @@ int partition(const std::string data_file, const float sampling_rate, size_t num
     // now pivots are ready. need to stream base points and assign them to
     // closest clusters.
 
-    shard_data_into_clusters<T>(data_file, pivot_data, num_parts, train_dim, k_base, prefix_path, epsilon);
+    shard_data_into_clusters<T>(data_file, pivot_data, num_parts, train_dim, prefix_path, epsilon);
     delete[] pivot_data;
     delete[] train_data_float;
     return 0;
@@ -527,7 +567,7 @@ int partition(const std::string data_file, const float sampling_rate, size_t num
 
 template <typename T>
 int partition_with_ram_budget(const std::string data_file, const double sampling_rate, double ram_budget,
-                              size_t graph_degree, const std::string prefix_path, size_t k_base, float epsilon)
+                              size_t graph_degree, const std::string prefix_path, float epsilon)
 {
     size_t train_dim;
     size_t num_train;
@@ -535,7 +575,6 @@ int partition_with_ram_budget(const std::string data_file, const double sampling
     size_t max_k_means_reps = 10;
 
     int num_parts = 3;
-    k_base = std::min(k_base, static_cast<size_t>(num_parts));
 
     bool fit_in_ram = false;
 
@@ -576,7 +615,7 @@ int partition_with_ram_budget(const std::string data_file, const double sampling
         // closest clusters.
 
         std::vector<size_t> cluster_sizes;
-        estimate_cluster_sizes(test_data_float, num_test, pivot_data, num_parts, train_dim, k_base, cluster_sizes);
+        estimate_cluster_sizes(test_data_float, num_test, pivot_data, num_parts, train_dim, cluster_sizes);
 
         for (auto &p : cluster_sizes)
         {
@@ -602,7 +641,7 @@ int partition_with_ram_budget(const std::string data_file, const double sampling
     diskann::cout << "Saving global k-center pivots" << std::endl;
     diskann::save_bin<float>(output_file.c_str(), pivot_data, (size_t)num_parts, train_dim);
 
-    shard_data_into_clusters_only_ids<T>(data_file, pivot_data, num_parts, train_dim, k_base, prefix_path);
+    shard_data_into_clusters_only_ids<T>(data_file, pivot_data, num_parts, train_dim, prefix_path, epsilon);
     delete[] pivot_data;
     delete[] train_data_float;
     delete[] test_data_float;
@@ -634,26 +673,25 @@ template void DISKANN_DLLEXPORT gen_random_slice<int8_t>(const std::string data_
 
 template DISKANN_DLLEXPORT int partition<int8_t>(const std::string data_file, const float sampling_rate,
                                                  size_t num_centers, size_t max_k_means_reps,
-                                                 const std::string prefix_path, size_t k_base, float epsilon);
+                                                 const std::string prefix_path, float epsilon);
 template DISKANN_DLLEXPORT int partition<uint8_t>(const std::string data_file, const float sampling_rate,
                                                   size_t num_centers, size_t max_k_means_reps,
-                                                  const std::string prefix_path, size_t k_base, float epsilon);
+                                                  const std::string prefix_path, float epsilon);
 template DISKANN_DLLEXPORT int partition<float>(const std::string data_file, const float sampling_rate,
                                                 size_t num_centers, size_t max_k_means_reps,
-                                                const std::string prefix_path, size_t k_base, float epsilon);
+                                                const std::string prefix_path, float epsilon);
 
 template DISKANN_DLLEXPORT int partition_with_ram_budget<int8_t>(const std::string data_file,
                                                                  const double sampling_rate, double ram_budget,
                                                                  size_t graph_degree, const std::string prefix_path,
-                                                                 size_t k_base, float epsilon);
+                                                                 float epsilon);
 template DISKANN_DLLEXPORT int partition_with_ram_budget<uint8_t>(const std::string data_file,
                                                                   const double sampling_rate, double ram_budget,
                                                                   size_t graph_degree, const std::string prefix_path,
-                                                                  size_t k_base, float epsilon);
+                                                                  float epsilon);
 template DISKANN_DLLEXPORT int partition_with_ram_budget<float>(const std::string data_file, const double sampling_rate,
                                                                 double ram_budget, size_t graph_degree,
-                                                                const std::string prefix_path, size_t k_base,
-                                                                float epsilon);
+                                                                const std::string prefix_path, float epsilon);
 
 template DISKANN_DLLEXPORT int retrieve_shard_data_from_ids<float>(const std::string data_file,
                                                                    std::string idmap_filename,

@@ -5,10 +5,21 @@ set -e
 
 # --- 1. Clean up old files ---
 echo "--- Cleaning up old files and directories ---"
-rm -rf build/data/sift
+
+INDEX_PREFIX="build/data/sift/disk_index_sift_learn_R32_L50_A1.2"
+
+# Remove old data and index files, but keep reusable PQ files.
+# Deletes base data, groundtruth, final graph, shards, and medoids.
+rm -f build/data/sift/sift_* \
+      "${INDEX_PREFIX}_disk.index" \
+      "${INDEX_PREFIX}_subshard-"* \
+      "${INDEX_PREFIX}_medoids.bin" \
+      "${INDEX_PREFIX}_centroids.bin" \
+      build/data/sift/res*
+
 rm -rf build/data/siftsmall
 mkdir -p build/data/sift
-echo "--- Cleanup complete ---"
+echo "--- Cleanup complete (reusable PQ data is preserved) ---"
 echo
 
 # --- 2. Generate synthetic data ---
@@ -28,13 +39,13 @@ echo
 
 # --- 4. Build the disk index ---
 echo "--- Building disk index (R=32, L=50) ---"
-./build/apps/build_disk_index --data_type float --dist_fn l2 --data_path build/data/sift/sift_learn.bin --index_path_prefix build/data/sift/disk_index_sift_learn_R32_L50_A1.2 -R 32 -L 50 -B 0.003 -M 0.001
+./build/apps/build_disk_index --data_type float --dist_fn l2 --data_path build/data/sift/sift_learn.bin --index_path_prefix "${INDEX_PREFIX}" -R 32 -L 50 -B 0.003 -M 0.001
 echo "--- Index build complete ---"
 echo
 
 # --- 5. Search the index and measure recall ---
 echo "--- Searching index and measuring recall (K=10, L=10,20,30,40,50,100) ---"
-./build/apps/search_disk_index --data_type float --dist_fn l2 --index_path_prefix build/data/sift/disk_index_sift_learn_R32_L50_A1.2 --query_file build/data/sift/sift_query.bin --gt_file build/data/sift/sift_query_learn_gt100 -K 10 -L 10 20 30 40 50 100 --result_path build/data/sift/res --num_nodes_to_cache 1000
+./build/apps/search_disk_index --data_type float --dist_fn l2 --index_path_prefix "${INDEX_PREFIX}" --query_file build/data/sift/sift_query.bin --gt_file build/data/sift/sift_query_learn_gt100 -K 10 -L 10 20 30 40 50 100 --result_path build/data/sift/res --num_nodes_to_cache 1000
 echo "--- Search and recall measurement complete ---"
 echo
 
