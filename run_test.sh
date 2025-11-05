@@ -12,8 +12,8 @@ echo "--- Cleanup complete ---"
 echo
 
 # --- 2. Generate synthetic data ---
-echo "--- Generating 16-dimensional synthetic data (5000 base points, 100 query points) ---"
-# Generate the base dataset for building the index: 5000 points, 16 dimensions
+echo "--- Generating 16-dimensional synthetic data (20,000 base points, 100 query points) ---"
+# Generate the base dataset for building the index: 20,000 points, 16 dimensions
 ./build/apps/utils/generate_test_data build/data/sift/sift_learn.bin 5000 16
 # Generate the query dataset for searching the index: 100 points, 16 dimensions
 ./build/apps/utils/generate_test_data build/data/sift/sift_query.bin 100 16
@@ -28,7 +28,7 @@ echo
 
 # --- 4. Build the disk index ---
 echo "--- Building disk index (R=32, L=50) ---"
-./build/apps/build_disk_index --data_type float --dist_fn l2 --data_path build/data/sift/sift_learn.bin --index_path_prefix build/data/sift/disk_index_sift_learn_R32_L50_A1.2 -R 32 -L 50 -B 0.003 -M 1
+./build/apps/build_disk_index --data_type float --dist_fn l2 --data_path build/data/sift/sift_learn.bin --index_path_prefix build/data/sift/disk_index_sift_learn_R32_L50_A1.2 -R 32 -L 50 -B 0.003 -M 0.001
 echo "--- Index build complete ---"
 echo
 
