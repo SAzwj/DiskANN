@@ -551,7 +551,8 @@ int partition(const std::string data_file, const float sampling_rate, size_t num
     diskann::cout << "Processing global k-means (kmeans_partitioning Step)" << std::endl;
     kmeans::kmeanspp_selecting_pivots(train_data_float, num_train, train_dim, pivot_data, num_parts);
 
-    kmeans::run_lloyds(train_data_float, num_train, train_dim, pivot_data, num_parts, max_k_means_reps, NULL, NULL);
+    kmeans::run_lloyds(train_data_float, num_train, train_dim, pivot_data, num_parts, max_k_means_reps, NULL, NULL,
+                       true);
 
     diskann::cout << "Saving global k-center pivots" << std::endl;
     diskann::save_bin<float>(output_file.c_str(), pivot_data, (size_t)num_parts, train_dim);
@@ -609,7 +610,8 @@ int partition_with_ram_budget(const std::string data_file, const double sampling
         diskann::cout << "Processing global k-means (kmeans_partitioning Step)" << std::endl;
         kmeans::kmeanspp_selecting_pivots(train_data_float, num_train, train_dim, pivot_data, num_parts);
 
-        kmeans::run_lloyds(train_data_float, num_train, train_dim, pivot_data, num_parts, max_k_means_reps, NULL, NULL);
+        kmeans::run_lloyds(train_data_float, num_train, train_dim, pivot_data, num_parts, max_k_means_reps, NULL, NULL,
+                           true);
 
         // now pivots are ready. need to stream base points and assign them to
         // closest clusters.
