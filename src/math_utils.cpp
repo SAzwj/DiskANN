@@ -342,7 +342,8 @@ namespace kmeans
 // closest_docs == NULL, will allocate memory and return.
 
 float lloyds_iter(float *data, size_t num_points, size_t dim, float *centers, size_t num_centers, float *docs_l2sq,
-                  std::vector<size_t> *closest_docs, uint32_t *&closest_center, bool enable_balancing)
+                  std::vector<size_t> *closest_docs, uint32_t *&closest_center, bool enable_balancing,
+                  const float lambda)
 {
     bool compute_residual = true;
     // Timer timer;
@@ -410,17 +411,6 @@ float lloyds_iter(float *data, size_t num_points, size_t dim, float *centers, si
 
     if (enable_balancing)
     {
-        // Balanced k-means assignment step.
-        // Dynamically calculate lambda to match the scale of the data.
-        float avg_dist_sq = math_utils::estimate_avg_dist_sq(data, num_points, dim);
-        // The balancing penalty for a cluster size deviation of 1 should be
-        // on the same order of magnitude as the typical squared distance between points.
-        // Penalty = lambda * (cluster_size_diff)^2.
-        // For a diff of 1, Penalty = lambda.
-        // Thus, we set lambda to be proportional to the average squared distance.
-        // A tunable coefficient can be used to adjust the strength of the balancing term.
-        const float balancing_coefficient = 0.8f;
-        const float lambda = balancing_coefficient * avg_dist_sq;
         const double ideal_cluster_size = (double)num_points / num_centers;
         // Add balancing term to the residual
         double balancing_term = 0.0;
@@ -447,6 +437,20 @@ float run_lloyds(float *data, size_t num_points, size_t dim, float *centers, con
                  const size_t max_reps, std::vector<size_t> *closest_docs, uint32_t *closest_center,
                  bool enable_balancing)
 {
+    float lambda = 0.0f;
+    if (enable_balancing)
+    {
+        // Dynamically calculate lambda to match the scale of the data.
+        float avg_dist_sq = math_utils::estimate_avg_dist_sq(data, num_points, dim);
+        // The balancing penalty for a cluster size deviation of 1 should be
+        // on the same order of magnitude as the typical squared distance between points.
+        // Penalty = lambda * (cluster_size_diff)^2.
+        // For a diff of 1, Penalty = lambda.
+        // Thus, we set lambda to be proportional to the average squared distance.
+        // A tunable coefficient can be used to adjust the strength of the balancing term.
+        const float balancing_coefficient = 0.8f;
+        lambda = balancing_coefficient * avg_dist_sq;
+    }
     float residual = std::numeric_limits<float>::max();
     bool ret_closest_docs = true;
     bool ret_closest_center = true;
@@ -471,7 +475,7 @@ float run_lloyds(float *data, size_t num_points, size_t dim, float *centers, con
         old_residual = residual;
 
         residual = lloyds_iter(data, num_points, dim, centers, num_centers, docs_l2sq, closest_docs, closest_center,
-                               enable_balancing);
+                               enable_balancing, lambda);
 
         if (i > 0 && residual > old_residual)
         {

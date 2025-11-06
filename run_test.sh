@@ -16,7 +16,7 @@ rm -f build/data/sift/sift_* \
       "${INDEX_PREFIX}_medoids.bin" \
       "${INDEX_PREFIX}_centroids.bin" \
       build/data/sift/res*
-
+# rm -rf build/data/sift
 rm -rf build/data/siftsmall
 mkdir -p build/data/sift
 echo "--- Cleanup complete (reusable PQ data is preserved) ---"
@@ -25,7 +25,7 @@ echo
 # --- 2. Generate synthetic data ---
 echo "--- Generating 16-dimensional synthetic data (20,000 base points, 100 query points) ---"
 # Generate the base dataset for building the index: 20,000 points, 16 dimensions
-./build/apps/utils/generate_test_data build/data/sift/sift_learn.bin 5000 16
+./build/apps/utils/generate_test_data build/data/sift/sift_learn.bin 50000 16
 # Generate the query dataset for searching the index: 100 points, 16 dimensions
 ./build/apps/utils/generate_test_data build/data/sift/sift_query.bin 100 16
 echo "--- Data generation complete ---"
