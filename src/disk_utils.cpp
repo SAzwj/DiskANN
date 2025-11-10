@@ -593,7 +593,7 @@ void extract_shard_labels(const std::string &in_label_file, const std::string &s
   // point in labels file
     diskann::cout << "Extracting labels for shard" << std::endl;
 
-    uint32_t *ids = nullptr;
+    std::unique_ptr<uint32_t[]> ids;
     uint64_t num_ids, tmp_dim;
     diskann::load_bin(shard_ids_bin, ids, num_ids, tmp_dim);
 
@@ -620,8 +620,6 @@ void extract_shard_labels(const std::string &in_label_file, const std::string &s
             counter++;
         }
     }
-    if (ids != nullptr)
-        delete[] ids;
 }
 
 template <typename T, typename LabelT>

@@ -39,7 +39,7 @@ echo
 
 # --- 4. Build the disk index ---
 echo "--- Building disk index (R=32, L=50) ---"
-./build/apps/build_disk_index --data_type float --dist_fn l2 --data_path build/data/sift/sift_learn.bin --index_path_prefix "${INDEX_PREFIX}" -R 32 -L 50 -B 0.003 -M 0.0005
+./build/apps/build_disk_index --data_type float --dist_fn l2 --data_path build/data/sift/sift_learn.bin --index_path_prefix "${INDEX_PREFIX}" -R 32 -L 50 -B 0.003 -M 0.0006
 echo "--- Index build complete ---"
 echo
 

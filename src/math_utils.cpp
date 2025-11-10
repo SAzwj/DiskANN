@@ -448,7 +448,7 @@ float run_lloyds(float *data, size_t num_points, size_t dim, float *centers, con
         // For a diff of 1, Penalty = lambda.
         // Thus, we set lambda to be proportional to the average squared distance.
         // A tunable coefficient can be used to adjust the strength of the balancing term.
-        const float balancing_coefficient = 0.8f;
+        const float balancing_coefficient = 0.9f;
         lambda = balancing_coefficient * avg_dist_sq;
     }
     float residual = std::numeric_limits<float>::max();
