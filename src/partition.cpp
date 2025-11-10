@@ -29,9 +29,75 @@
 #define BLOCK_SIZE 5000000
 
 // Manually tunable parameters for partitioning
-const float PARTITION_EPSILON = 0.2f;
+// If the distance to the second nearest center is closer than this ratio times the distance to the nearest center,
+// we assign the point to both centers.
+const float AMBIGUITY_RATIO = 1.2f;
 
 // #define SAVE_INFLATED_PQ true
+
+// prunes candidates based on RNG heuristic
+static std::vector<uint32_t> prune_candidates_rng(const std::vector<uint32_t> &initial_candidates,
+                                                  const std::vector<float> &initial_candidates_dists,
+                                                  const float *pivots, const size_t dim, const float alpha,
+                                                  diskann::Distance<float> *dist_cmp, const size_t num_centers)
+{
+    // A struct to hold candidate info
+    struct Candidate
+    {
+        uint32_t id;
+        float dist;
+    };
+
+    std::vector<Candidate> candidates;
+    for (size_t i = 0; i < initial_candidates.size(); ++i)
+    {
+        candidates.push_back({initial_candidates[i], initial_candidates_dists[i]});
+    }
+
+    // Sort candidates by distance
+    std::sort(candidates.begin(), candidates.end(),
+              [](const Candidate &a, const Candidate &b) { return a.dist < b.dist; });
+
+    std::vector<uint32_t> assigned_shards;
+    if (candidates.empty())
+    {
+        return assigned_shards;
+    }
+
+    assigned_shards.push_back(candidates[0].id);
+
+    for (size_t i = 1; i < candidates.size(); ++i)
+    {
+        bool pruned = false;
+        // dist_p_pi is d(p, p_i)^2
+        float dist_p_pi_sq = candidates[i].dist;
+
+        for (uint32_t assigned_shard_id : assigned_shards)
+        {
+            // Check if ids are valid
+            if (candidates[i].id >= num_centers || assigned_shard_id >= num_centers)
+            {
+                // Should not happen, but as a safeguard
+                continue;
+            }
+            const float *p_i_coords = pivots + (size_t)candidates[i].id * dim;
+            const float *p_j_coords = pivots + (size_t)assigned_shard_id * dim;
+            // dist_pj_pi is d(p_j, p_i)^2
+            float dist_pj_pi_sq = dist_cmp->compare(p_i_coords, p_j_coords, (unsigned)dim);
+
+            if (alpha * dist_pj_pi_sq <= dist_p_pi_sq)
+            {
+                pruned = true;
+                break;
+            }
+        }
+        if (!pruned)
+        {
+            assigned_shards.push_back(candidates[i].id);
+        }
+    }
+    return assigned_shards;
+}
 
 template <typename T>
 void gen_random_slice(const std::string base_file, const std::string output_prefix, double sampling_rate)
@@ -140,7 +206,9 @@ int shard_data_into_clusters(const std::string data_file, float *pivots, const s
     std::unique_ptr<float[]> block_data_float = std::make_unique<float[]>(block_size * dim);
 
     size_t num_blocks = DIV_ROUND_UP(num_points, block_size);
+    size_t num_edge_points = 0;
 
+    diskann::Distance<float> *dist_cmp = new diskann::DistanceL2Float();
     for (size_t block = 0; block < num_blocks; block++)
     {
         size_t start_id = block * block_size;
@@ -154,24 +222,21 @@ int shard_data_into_clusters(const std::string data_file, float *pivots, const s
                                                            num_centers, candidate_pool_size,
                                                            block_closest_centers.get(), block_closest_dists.get());
 
-        diskann::Distance<float> *dist_cmp = new diskann::DistanceL2Float();
         for (size_t p = 0; p < cur_blk_size; p++)
         {
-            // Epsilon pre-filter
-            std::vector<uint32_t> initial_candidates;
-            std::vector<float> initial_candidates_dists;
-            float nearest_dist = block_closest_dists[p * candidate_pool_size];
-            const float epsilon_ball_multiplier = (1.0f + PARTITION_EPSILON) * (1.0f + PARTITION_EPSILON);
-            for (size_t p1 = 0; p1 < candidate_pool_size; p1++)
+            std::vector<uint32_t> assigned_shards;
+            assigned_shards.push_back(block_closest_centers[p * candidate_pool_size + 0]);
+
+            if (num_centers > 1)
             {
-                if (block_closest_dists[p * candidate_pool_size + p1] <= epsilon_ball_multiplier * nearest_dist)
+                float nearest_dist_sq = block_closest_dists[p * candidate_pool_size + 0];
+                float second_nearest_dist_sq = block_closest_dists[p * candidate_pool_size + 1];
+                if (second_nearest_dist_sq < AMBIGUITY_RATIO * AMBIGUITY_RATIO * nearest_dist_sq)
                 {
-                    initial_candidates.push_back(block_closest_centers[p * candidate_pool_size + p1]);
-                    initial_candidates_dists.push_back(block_closest_dists[p * candidate_pool_size + p1]);
+                    assigned_shards.push_back(block_closest_centers[p * candidate_pool_size + 1]);
+                    num_edge_points++;
                 }
             }
-
-            std::vector<uint32_t> assigned_shards = initial_candidates;
 
             // Write data
             for (const auto &shard_id : assigned_shards)
@@ -182,8 +247,8 @@ int shard_data_into_clusters(const std::string data_file, float *pivots, const s
                 shard_counts[shard_id]++;
             }
         }
-        delete dist_cmp;
     }
+    delete dist_cmp;
 
     size_t total_count = 0;
     diskann::cout << "Actual shard sizes: " << std::flush;
@@ -202,6 +267,9 @@ int shard_data_into_clusters(const std::string data_file, float *pivots, const s
 
     diskann::cout << "\n Partitioned " << num_points << " to get " << total_count << " points across " << num_centers
                   << " shards " << std::endl;
+    double edge_points_ratio = (double)num_edge_points / (double)num_points;
+    diskann::cout << "Number of edge points: " << num_edge_points << std::endl;
+    diskann::cout << "Proportion of edge points: " << edge_points_ratio * 100 << "%" << std::endl;
     return 0;
 }
 
@@ -248,52 +316,58 @@ int estimate_cluster_sizes(float *test_data_float, size_t num_test, float *pivot
                            const size_t test_dim, std::vector<size_t> &cluster_sizes)
 {
     cluster_sizes.clear();
-    const size_t k_base = 1; // k_base is 1 for estimation
+    cluster_sizes.resize(num_centers, 0);
 
-    size_t *shard_counts = new size_t[num_centers];
-
-    for (size_t i = 0; i < num_centers; i++)
-    {
-        shard_counts[i] = 0;
-    }
+    const size_t candidate_pool_size = std::min((size_t)20, num_centers);
 
     size_t block_size = num_test <= BLOCK_SIZE ? num_test : BLOCK_SIZE;
-    uint32_t *block_closest_centers = new uint32_t[block_size * k_base];
-    float *block_data_float;
+    std::unique_ptr<uint32_t[]> block_closest_centers = std::make_unique<uint32_t[]>(block_size * candidate_pool_size);
+    std::unique_ptr<float[]> block_closest_dists = std::make_unique<float[]>(block_size * candidate_pool_size);
 
     size_t num_blocks = DIV_ROUND_UP(num_test, block_size);
 
+    diskann::Distance<float> *dist_cmp = new diskann::DistanceL2Float();
     for (size_t block = 0; block < num_blocks; block++)
     {
         size_t start_id = block * block_size;
         size_t end_id = (std::min)((block + 1) * block_size, num_test);
         size_t cur_blk_size = end_id - start_id;
 
-        block_data_float = test_data_float + start_id * test_dim;
+        float *block_data_float = test_data_float + start_id * test_dim;
 
-        math_utils::compute_closest_centers(block_data_float, cur_blk_size, test_dim, pivots, num_centers, k_base,
-                                            block_closest_centers);
+        math_utils::compute_closest_centers_with_distances(block_data_float, cur_blk_size, test_dim, pivots,
+                                                           num_centers, candidate_pool_size,
+                                                           block_closest_centers.get(), block_closest_dists.get());
 
         for (size_t p = 0; p < cur_blk_size; p++)
         {
-            for (size_t p1 = 0; p1 < k_base; p1++)
+            std::vector<uint32_t> assigned_shards;
+            assigned_shards.push_back(block_closest_centers[p * candidate_pool_size + 0]);
+
+            if (num_centers > 1)
             {
-                size_t shard_id = block_closest_centers[p * k_base + p1];
-                shard_counts[shard_id]++;
+                float nearest_dist_sq = block_closest_dists[p * candidate_pool_size + 0];
+                float second_nearest_dist_sq = block_closest_dists[p * candidate_pool_size + 1];
+                if (second_nearest_dist_sq < AMBIGUITY_RATIO * AMBIGUITY_RATIO * nearest_dist_sq)
+                {
+                    assigned_shards.push_back(block_closest_centers[p * candidate_pool_size + 1]);
+                }
+            }
+
+            for (const auto &shard_id : assigned_shards)
+            {
+                cluster_sizes[shard_id]++;
             }
         }
     }
+    delete dist_cmp;
 
     diskann::cout << "Estimated cluster sizes: ";
     for (size_t i = 0; i < num_centers; i++)
     {
-        uint32_t cur_shard_count = (uint32_t)shard_counts[i];
-        cluster_sizes.push_back((size_t)cur_shard_count);
-        diskann::cout << cur_shard_count << " ";
+        diskann::cout << cluster_sizes[i] << " ";
     }
     diskann::cout << std::endl;
-    delete[] shard_counts;
-    delete[] block_closest_centers;
     return 0;
 }
 
@@ -391,7 +465,9 @@ int shard_data_into_clusters_only_ids(const std::string data_file, float *pivots
     std::unique_ptr<float[]> block_data_float = std::make_unique<float[]>(block_size * dim);
 
     size_t num_blocks = DIV_ROUND_UP(num_points, block_size);
+    size_t num_edge_points = 0;
 
+    diskann::Distance<float> *dist_cmp = new diskann::DistanceL2Float();
     for (size_t block = 0; block < num_blocks; block++)
     {
         size_t start_id = block * block_size;
@@ -405,24 +481,21 @@ int shard_data_into_clusters_only_ids(const std::string data_file, float *pivots
                                                            num_centers, candidate_pool_size,
                                                            block_closest_centers.get(), block_closest_dists.get());
 
-        diskann::Distance<float> *dist_cmp = new diskann::DistanceL2Float();
         for (size_t p = 0; p < cur_blk_size; p++)
         {
-            // Epsilon pre-filter
-            std::vector<uint32_t> initial_candidates;
-            std::vector<float> initial_candidates_dists;
-            float nearest_dist = block_closest_dists[p * candidate_pool_size];
-            const float epsilon_ball_multiplier = (1.0f + PARTITION_EPSILON) * (1.0f + PARTITION_EPSILON);
-            for (size_t p1 = 0; p1 < candidate_pool_size; p1++)
+            std::vector<uint32_t> assigned_shards;
+            assigned_shards.push_back(block_closest_centers[p * candidate_pool_size + 0]);
+
+            if (num_centers > 1)
             {
-                if (block_closest_dists[p * candidate_pool_size + p1] <= epsilon_ball_multiplier * nearest_dist)
+                float nearest_dist_sq = block_closest_dists[p * candidate_pool_size + 0];
+                float second_nearest_dist_sq = block_closest_dists[p * candidate_pool_size + 1];
+                if (second_nearest_dist_sq < AMBIGUITY_RATIO * AMBIGUITY_RATIO * nearest_dist_sq)
                 {
-                    initial_candidates.push_back(block_closest_centers[p * candidate_pool_size + p1]);
-                    initial_candidates_dists.push_back(block_closest_dists[p * candidate_pool_size + p1]);
+                    assigned_shards.push_back(block_closest_centers[p * candidate_pool_size + 1]);
+                    num_edge_points++;
                 }
             }
-
-            std::vector<uint32_t> assigned_shards = initial_candidates;
 
             // Write data
             for (const auto &shard_id : assigned_shards)
@@ -432,8 +505,8 @@ int shard_data_into_clusters_only_ids(const std::string data_file, float *pivots
                 shard_counts[shard_id]++;
             }
         }
-        delete dist_cmp;
     }
+    delete dist_cmp;
 
     size_t total_count = 0;
     diskann::cout << "Actual shard sizes: " << std::flush;
@@ -449,6 +522,9 @@ int shard_data_into_clusters_only_ids(const std::string data_file, float *pivots
 
     diskann::cout << "\n Partitioned " << num_points << " to get " << total_count << " points across " << num_centers
                   << " shards " << std::endl;
+    double edge_points_ratio = (double)num_edge_points / (double)num_points;
+    diskann::cout << "Number of edge points: " << num_edge_points << std::endl;
+    diskann::cout << "Proportion of edge points: " << edge_points_ratio * 100 << "%" << std::endl;
     return 0;
 }
 
@@ -575,7 +651,7 @@ int partition_with_ram_budget(const std::string data_file, const double sampling
     float *train_data_float;
     size_t max_k_means_reps = 10;
 
-    int num_parts = 3;
+    int num_parts = 11;
 
     bool fit_in_ram = false;
 
@@ -636,7 +712,10 @@ int partition_with_ram_budget(const std::string data_file, const double sampling
         if (max_ram_usage > 1024 * 1024 * 1024 * ram_budget)
         {
             fit_in_ram = false;
-            num_parts += 2;
+            if (max_ram_usage / 2 > 1024 * 1024 * 1024 * ram_budget)
+                num_parts *= 3;
+            else
+                num_parts += 2;
         }
     }
 
