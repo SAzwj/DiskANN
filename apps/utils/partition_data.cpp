@@ -29,11 +29,11 @@ int main(int argc, char **argv)
     const size_t k_index = (size_t)std::atoi(argv[6]);
 
     if (std::string(argv[1]) == std::string("float"))
-        partition<float>(data_path, sampling_rate, num_partitions, max_reps, prefix_path, k_index);
+        partition<float>(data_path, sampling_rate, num_partitions, max_reps, prefix_path);
     else if (std::string(argv[1]) == std::string("int8"))
-        partition<int8_t>(data_path, sampling_rate, num_partitions, max_reps, prefix_path, k_index);
+        partition<int8_t>(data_path, sampling_rate, num_partitions, max_reps, prefix_path);
     else if (std::string(argv[1]) == std::string("uint8"))
-        partition<uint8_t>(data_path, sampling_rate, num_partitions, max_reps, prefix_path, k_index);
+        partition<uint8_t>(data_path, sampling_rate, num_partitions, max_reps, prefix_path);
     else
         std::cout << "unsupported data format. use float/int8/uint8" << std::endl;
 }
