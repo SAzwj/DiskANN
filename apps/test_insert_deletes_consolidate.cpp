@@ -483,11 +483,11 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    bool has_labels = false;
-    if (!label_file.empty() || label_file != "")
-    {
-        has_labels = true;
-    }
+    // bool has_labels = false;
+    // if (!label_file.empty() || label_file != "")
+    // {
+    //     has_labels = true;
+    // }
 
     if (num_start_pts < unique_labels_supported)
     {

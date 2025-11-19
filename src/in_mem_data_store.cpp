@@ -222,7 +222,7 @@ template <typename data_t>
 void InMemDataStore<data_t>::get_distance(const data_t *preprocessed_query, const std::vector<location_t> &ids,
                                           std::vector<float> &distances, AbstractScratch<data_t> *scratch_space) const
 {
-    for (int i = 0; i < ids.size(); i++)
+    for (size_t i = 0; i < ids.size(); i++)
     {
         distances[i] =
             _distance_fn->compare(preprocessed_query, _data + ids[i] * _aligned_dim, (uint32_t)this->_aligned_dim);

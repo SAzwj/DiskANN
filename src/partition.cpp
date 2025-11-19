@@ -35,6 +35,7 @@ const float AMBIGUITY_RATIO = 1.2f;
 
 // #define SAVE_INFLATED_PQ true
 
+/*
 // prunes candidates based on RNG heuristic
 static std::vector<uint32_t> prune_candidates_rng(const std::vector<uint32_t> &initial_candidates,
                                                   const std::vector<float> &initial_candidates_dists,
@@ -98,6 +99,7 @@ static std::vector<uint32_t> prune_candidates_rng(const std::vector<uint32_t> &i
     }
     return assigned_shards;
 }
+*/
 
 template <typename T>
 void gen_random_slice(const std::string base_file, const std::string output_prefix, double sampling_rate)
@@ -162,7 +164,7 @@ void gen_random_slice(const std::string base_file, const std::string output_pref
 
 template <typename T>
 int shard_data_into_clusters(const std::string data_file, float *pivots, const size_t num_centers, const size_t dim,
-                             std::string prefix_path, float epsilon)
+                             std::string prefix_path)
 {
     size_t read_blk_size = 64 * 1024 * 1024;
     //  uint64_t write_blk_size = 64 * 1024 * 1024;
@@ -425,7 +427,7 @@ void gen_random_slice(const std::string data_file, double p_val, float *&sampled
 // each shard, and retrieve the actual vectors on demand.
 template <typename T>
 int shard_data_into_clusters_only_ids(const std::string data_file, float *pivots, const size_t num_centers,
-                                      const size_t dim, std::string prefix_path, float epsilon)
+                                      const size_t dim, std::string prefix_path)
 {
     size_t read_blk_size = 64 * 1024 * 1024;
     //  uint64_t write_blk_size = 64 * 1024 * 1024;
@@ -602,7 +604,7 @@ int retrieve_shard_data_from_ids(const std::string data_file, std::string idmap_
 
 template <typename T>
 int partition(const std::string data_file, const float sampling_rate, size_t num_parts, size_t max_k_means_reps,
-              const std::string prefix_path, float epsilon)
+              const std::string prefix_path)
 {
     size_t train_dim;
     size_t num_train;
@@ -636,7 +638,7 @@ int partition(const std::string data_file, const float sampling_rate, size_t num
     // now pivots are ready. need to stream base points and assign them to
     // closest clusters.
 
-    shard_data_into_clusters<T>(data_file, pivot_data, num_parts, train_dim, prefix_path, epsilon);
+    shard_data_into_clusters<T>(data_file, pivot_data, num_parts, train_dim, prefix_path);
     delete[] pivot_data;
     delete[] train_data_float;
     return 0;
@@ -644,7 +646,7 @@ int partition(const std::string data_file, const float sampling_rate, size_t num
 
 template <typename T>
 int partition_with_ram_budget(const std::string data_file, const double sampling_rate, double ram_budget,
-                              size_t graph_degree, const std::string prefix_path, float epsilon)
+                              size_t graph_degree, const std::string prefix_path)
 {
     size_t train_dim;
     size_t num_train;
@@ -722,7 +724,7 @@ int partition_with_ram_budget(const std::string data_file, const double sampling
     diskann::cout << "Saving global k-center pivots" << std::endl;
     diskann::save_bin<float>(output_file.c_str(), pivot_data, (size_t)num_parts, train_dim);
 
-    shard_data_into_clusters_only_ids<T>(data_file, pivot_data, num_parts, train_dim, prefix_path, epsilon);
+    shard_data_into_clusters_only_ids<T>(data_file, pivot_data, num_parts, train_dim, prefix_path);
     delete[] pivot_data;
     delete[] train_data_float;
     delete[] test_data_float;
@@ -754,25 +756,23 @@ template void DISKANN_DLLEXPORT gen_random_slice<int8_t>(const std::string data_
 
 template DISKANN_DLLEXPORT int partition<int8_t>(const std::string data_file, const float sampling_rate,
                                                  size_t num_centers, size_t max_k_means_reps,
-                                                 const std::string prefix_path, float epsilon);
+                                                 const std::string prefix_path);
 template DISKANN_DLLEXPORT int partition<uint8_t>(const std::string data_file, const float sampling_rate,
                                                   size_t num_centers, size_t max_k_means_reps,
-                                                  const std::string prefix_path, float epsilon);
+                                                  const std::string prefix_path);
 template DISKANN_DLLEXPORT int partition<float>(const std::string data_file, const float sampling_rate,
                                                 size_t num_centers, size_t max_k_means_reps,
-                                                const std::string prefix_path, float epsilon);
+                                                const std::string prefix_path);
 
 template DISKANN_DLLEXPORT int partition_with_ram_budget<int8_t>(const std::string data_file,
                                                                  const double sampling_rate, double ram_budget,
-                                                                 size_t graph_degree, const std::string prefix_path,
-                                                                 float epsilon);
+                                                                 size_t graph_degree, const std::string prefix_path);
 template DISKANN_DLLEXPORT int partition_with_ram_budget<uint8_t>(const std::string data_file,
                                                                   const double sampling_rate, double ram_budget,
-                                                                  size_t graph_degree, const std::string prefix_path,
-                                                                  float epsilon);
+                                                                  size_t graph_degree, const std::string prefix_path);
 template DISKANN_DLLEXPORT int partition_with_ram_budget<float>(const std::string data_file, const double sampling_rate,
                                                                 double ram_budget, size_t graph_degree,
-                                                                const std::string prefix_path, float epsilon);
+                                                                const std::string prefix_path);
 
 template DISKANN_DLLEXPORT int retrieve_shard_data_from_ids<float>(const std::string data_file,
                                                                    std::string idmap_filename,
