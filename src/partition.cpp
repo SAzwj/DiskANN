@@ -653,7 +653,7 @@ int partition_with_ram_budget(const std::string data_file, const double sampling
     float *train_data_float;
     size_t max_k_means_reps = 10;
 
-    int num_parts = 11;
+    int num_parts = 3;
 
     bool fit_in_ram = false;
 

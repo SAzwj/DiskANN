@@ -121,6 +121,9 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
     // to have higher consistency between index builds.
     DISKANN_DLLEXPORT void set_start_points_at_random(T radius, uint32_t random_seed = 0);
 
+    // Initialize an empty index for dynamic insertion
+    DISKANN_DLLEXPORT void init_empty_index();
+
     // For FastL2 search on a static index, we interleave the data with graph
     DISKANN_DLLEXPORT void optimize_index_layout() override;
 

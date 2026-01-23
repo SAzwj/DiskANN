@@ -1271,7 +1271,18 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
                                                  const uint32_t io_limit, const bool use_reorder_data,
                                                  QueryStats *stats)
 {
+    cached_beam_search(query1, k_search, l_search, indices, distances, beam_width, use_filter, filter_label, io_limit,
+                       use_reorder_data, nullptr, stats);
+}
 
+template <typename T, typename LabelT>
+void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t k_search, const uint64_t l_search,
+                                                 uint64_t *indices, float *distances, const uint64_t beam_width,
+                                                 const bool use_filter, const LabelT &filter_label,
+                                                 const uint32_t io_limit, const bool use_reorder_data,
+                                                 const tsl::robin_set<uint32_t> *delete_set, QueryStats *stats)
+{
+    diskann::cout << "PQFlashIndex::cached_beam_search start" << std::endl;
     uint64_t num_sector_per_nodes = DIV_ROUND_UP(_max_node_len, defaults::SECTOR_LEN);
     if (beam_width > num_sector_per_nodes * defaults::MAX_N_SECTOR_READS)
         throw ANNException("Beamwidth can not be higher than defaults::MAX_N_SECTOR_READS", -1, __FUNCSIG__, __FILE__,
@@ -1282,6 +1293,8 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
     IOContext &ctx = data->ctx;
     auto query_scratch = &(data->scratch);
     auto pq_query_scratch = query_scratch->pq_scratch();
+
+    diskann::cout << "PQFlashIndex::cached_beam_search scratch acquired" << std::endl;
 
     // reset query scratch
     query_scratch->reset();
@@ -1296,6 +1309,7 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
     // normalization step. for cosine, we simply normalize the query
     // for mips, we normalize the first d-1 dims, and add a 0 for last dim, since an extra coordinate was used to
     // convert MIPS to L2 search
+    diskann::cout << "PQFlashIndex::cached_beam_search normalizing query" << std::endl;
     if (metric == diskann::Metric::INNER_PRODUCT || metric == diskann::Metric::COSINE)
     {
         uint64_t inherent_dim = (metric == diskann::Metric::COSINE) ? this->_data_dim : (uint64_t)(this->_data_dim - 1);
@@ -1335,6 +1349,7 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
         _nnodes_per_sector > 0 ? 1 : DIV_ROUND_UP(_max_node_len, defaults::SECTOR_LEN);
 
     // query <-> PQ chunk centers distances
+    diskann::cout << "PQFlashIndex::cached_beam_search preprocess query" << std::endl;
     _pq_table.preprocess_query(query_rotated); // center the query and rotate if
                                                // we have a rotation matrix
     float *pq_dists = pq_query_scratch->aligned_pqtable_dist_scratch;
@@ -1359,6 +1374,7 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
 
     uint32_t best_medoid = 0;
     float best_dist = (std::numeric_limits<float>::max)();
+    diskann::cout << "PQFlashIndex::cached_beam_search finding best medoid" << std::endl;
     if (!use_filter)
     {
         for (uint64_t cur_m = 0; cur_m < _num_medoids; cur_m++)
@@ -1400,6 +1416,8 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
     retset.insert(Neighbor(best_medoid, dist_scratch[0]));
     visited.insert(best_medoid);
 
+    diskann::cout << "PQFlashIndex::cached_beam_search starting search loop" << std::endl;
+
     uint32_t cmps = 0;
     uint32_t hops = 0;
     uint32_t num_ios = 0;
@@ -1416,6 +1434,7 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
 
     while (retset.has_unexpanded_node() && num_ios < io_limit)
     {
+        // diskann::cout << "PQFlashIndex::cached_beam_search loop iter" << std::endl;
         // clear iteration state
         frontier.clear();
         frontier_nhoods.clear();
@@ -1520,6 +1539,9 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
                 uint32_t id = node_nbrs[m];
                 if (visited.insert(id).second)
                 {
+                    if (delete_set != nullptr && delete_set->find(id) != delete_set->end())
+                        continue;
+
                     if (!use_filter && _dummy_pts.find(id) != _dummy_pts.end())
                         continue;
 
@@ -1583,6 +1605,9 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
                 uint32_t id = node_nbrs[m];
                 if (visited.insert(id).second)
                 {
+                    if (delete_set != nullptr && delete_set->find(id) != delete_set->end())
+                        continue;
+
                     if (!use_filter && _dummy_pts.find(id) != _dummy_pts.end())
                         continue;
 
@@ -1780,6 +1805,19 @@ std::vector<std::uint8_t> PQFlashIndex<T, LabelT>::get_pq_vector(std::uint64_t v
 template <typename T, typename LabelT> std::uint64_t PQFlashIndex<T, LabelT>::get_num_points()
 {
     return _num_points;
+}
+
+template <typename T, typename LabelT>
+LabelT PQFlashIndex<T, LabelT>::get_label(uint32_t id)
+{
+    if (_pts_to_labels == nullptr) {
+        throw ANNException("Labels not loaded", -1, __FUNCSIG__, __FILE__, __LINE__);
+    }
+    
+    if (_pts_to_label_counts[id] == 0) {
+         throw ANNException("Point has no label", -1, __FUNCSIG__, __FILE__, __LINE__);
+    }
+    return _pts_to_labels[_pts_to_label_offsets[id]];
 }
 
 // instantiations

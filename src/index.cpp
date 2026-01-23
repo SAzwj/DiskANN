@@ -1517,6 +1517,19 @@ void Index<T, TagT, LabelT>::set_start_points_at_random(T radius, uint32_t rando
 }
 
 template <typename T, typename TagT, typename LabelT>
+void Index<T, TagT, LabelT>::init_empty_index()
+{
+    std::unique_lock<std::shared_timed_mutex> ul(_update_lock);
+    _has_built = true;
+    _nd = 0;
+    // Initialize scratch space if needed
+    if (_query_scratch.size() == 0)
+    {
+        initialize_query_scratch(_indexingThreads + 5, _indexingQueueSize, _indexingQueueSize, _indexingRange, _indexingMaxC, _dim);
+    }
+}
+
+template <typename T, typename TagT, typename LabelT>
 void Index<T, TagT, LabelT>::build_with_data_populated(const std::vector<TagT> &tags)
 {
     diskann::cout << "Starting index build with " << _nd << " points... " << std::endl;
