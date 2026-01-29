@@ -1520,12 +1520,51 @@ template <typename T, typename TagT, typename LabelT>
 void Index<T, TagT, LabelT>::init_empty_index()
 {
     std::unique_lock<std::shared_timed_mutex> ul(_update_lock);
+    std::unique_lock<std::shared_timed_mutex> tl(_tag_lock);
+    std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
+
     _has_built = true;
     _nd = 0;
+    _empty_slots.clear();
+    for (int64_t i = (int64_t)_max_points - 1; i >= 0; i--)
+    {
+        _empty_slots.insert((uint32_t)i);
+    }
+    _delete_set->clear();
+    for (uint32_t i = 0; i < _max_points + _num_frozen_pts; i++)
+    {
+        _graph_store->clear_neighbours((location_t)i);
+    }
+    _tag_to_location.clear();
+    _location_to_tag.clear();
+    _data_compacted = true;
+
+    if (_filtered_index)
+    {
+        for (auto &labels : _location_to_labels)
+        {
+            labels.clear();
+        }
+        _labels.clear();
+        _label_to_start_id.clear();
+        _medoid_counts.clear();
+        _frozen_pts_used = 0;
+    }
+
     // Initialize scratch space if needed
     if (_query_scratch.size() == 0)
     {
         initialize_query_scratch(_indexingThreads + 5, _indexingQueueSize, _indexingQueueSize, _indexingRange, _indexingMaxC, _dim);
+    }
+
+    if (_num_frozen_pts > 0)
+    {
+        _start = (uint32_t)_max_points;
+        std::vector<T> zero_vec(_dim, 0);
+        for (uint32_t i = 0; i < _num_frozen_pts; i++)
+        {
+            _data_store->set_vector((location_t)(_max_points + i), zero_vec.data());
+        }
     }
 }
 
@@ -2309,9 +2348,9 @@ template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>
 
     if (_data_compacted)
     {
-        for (uint32_t slot = (uint32_t)_nd; slot < _max_points; ++slot)
+        for (int64_t slot = (int64_t)_max_points - 1; slot >= (int64_t)_nd; --slot)
         {
-            _empty_slots.insert(slot);
+            _empty_slots.insert((uint32_t)slot);
         }
     }
     this->_deletes_enabled = true;
@@ -2631,7 +2670,7 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
 
     _empty_slots.clear();
     // mark all slots after _nd as empty
-    for (auto i = _nd; i < _max_points; i++)
+    for (int64_t i = (int64_t)_max_points - 1; i >= (int64_t)_nd; i--)
     {
         _empty_slots.insert((uint32_t)i);
     }
@@ -2740,6 +2779,12 @@ void Index<T, TagT, LabelT>::reposition_points(uint32_t old_location_start, uint
         // to avoid modifying locations that are yet to be copied.
         for (uint32_t loc_offset = 0; loc_offset < num_locations; loc_offset++)
         {
+            if (!_graph_store->get_neighbours(new_location_start + loc_offset).empty()) {
+                auto neighbors = _graph_store->get_neighbours(new_location_start + loc_offset);
+                diskann::cerr << "Error: Reposition target " << new_location_start + loc_offset << " is not empty! Neighbors: ";
+                for (auto n : neighbors) diskann::cerr << n << " ";
+                diskann::cerr << std::endl;
+            }
             assert(_graph_store->get_neighbours(new_location_start + loc_offset).empty());
             _graph_store->swap_neighbours(new_location_start + loc_offset, old_location_start + loc_offset);
             if (_dynamic_index && _filtered_index)
@@ -2826,7 +2871,7 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
 
     _max_points = new_max_points;
     _empty_slots.reserve(_max_points);
-    for (auto i = _nd; i < _max_points; i++)
+    for (int64_t i = (int64_t)_max_points - 1; i >= (int64_t)_nd; i--)
     {
         _empty_slots.insert((uint32_t)i);
     }

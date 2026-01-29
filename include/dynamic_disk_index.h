@@ -13,7 +13,7 @@ namespace diskann {
 template<typename T, typename LabelT = uint32_t>
 class DynamicDiskIndex {
 public:
-    DISKANN_DLLEXPORT DynamicDiskIndex(const IndexConfig& config, const std::string& disk_index_path, size_t mem_index_threshold);
+    DISKANN_DLLEXPORT DynamicDiskIndex(const IndexConfig& config, const std::string& data_file_path, const std::string& disk_index_path, size_t mem_index_threshold);
     DISKANN_DLLEXPORT ~DynamicDiskIndex();
 
     // 插入
@@ -40,6 +40,7 @@ private:
     tsl::robin_set<uint32_t> _disk_deleted_ids;
 
     std::shared_mutex _rw_lock;
+    std::string _data_file_path;
     std::string _disk_index_path;
     IndexConfig _config;
     size_t _mem_index_threshold;
