@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <memory>
+
 namespace boost
 {
 #ifndef BOOST_DYNAMIC_BITSET_FWD_HPP

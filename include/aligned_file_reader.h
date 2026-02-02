@@ -6,7 +6,6 @@
 #define MAX_IO_DEPTH 128
 
 #include <vector>
-#include <atomic>
 
 #ifndef _WINDOWS
 #include <fcntl.h>
@@ -101,7 +100,7 @@ class AlignedFileReader
     // returns (io_context_t)(-1) if thread is not registered
     virtual IOContext &get_ctx() = 0;
 
-    virtual ~AlignedFileReader(){};
+    virtual ~AlignedFileReader() {};
 
     // register thread-id for a context
     virtual void register_thread() = 0;

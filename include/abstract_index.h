@@ -1,9 +1,8 @@
 #pragma once
-#include "distance.h"
+#include <cstdint>
+#include <string>
 #include "parameters.h"
-#include "utils.h"
 #include "types.h"
-#include "index_config.h"
 #include "index_build_params.h"
 #include <any>
 

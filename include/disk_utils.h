@@ -100,6 +100,14 @@ DISKANN_DLLEXPORT int build_disk_index(
     const std::string &universal_label = "", const uint32_t filter_threshold = 0,
     const uint32_t Lf = 0); // default is empty string for no universal label
 
+template <typename T, typename LabelT = uint32_t>
+DISKANN_DLLEXPORT int core_search_disk_index(
+    diskann::Metric &metric, const std::string &index_path_prefix, const std::string &result_output_prefix,
+    const T *query, size_t query_num, size_t query_dim, size_t query_aligned_dim, std::string &gt_file,
+    const uint32_t num_threads, const uint32_t recall_at, const uint32_t beamwidth, const uint32_t num_nodes_to_cache,
+    const uint32_t search_io_limit, const std::vector<uint32_t> &Lvec, const float fail_if_recall_below,
+    const std::vector<std::string> &query_filters, const bool use_reorder_data = false);
+
 template <typename T>
 DISKANN_DLLEXPORT void create_disk_layout(const std::string base_file, const std::string mem_index_file,
                                           const std::string output_file,

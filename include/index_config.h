@@ -1,7 +1,10 @@
 #pragma once
 
-#include "common_includes.h"
+#include <iostream>
+#include <memory>
+#include "ann_exception.h"
 #include "parameters.h"
+#include "distance.h"
 
 namespace diskann
 {
@@ -172,7 +175,7 @@ class IndexConfigBuilder
     {
         if (index_write_params_ptr == nullptr)
         {
-            diskann::cout << "Passed, empty build_params while creating index config" << std::endl;
+            std::cout << "Passed, empty build_params while creating index config" << std::endl;
             return *this;
         }
         this->_index_write_params = index_write_params_ptr;
@@ -189,7 +192,7 @@ class IndexConfigBuilder
     {
         if (search_params_ptr == nullptr)
         {
-            diskann::cout << "Passed, empty search_params while creating index config" << std::endl;
+            std::cout << "Passed, empty search_params while creating index config" << std::endl;
             return *this;
         }
         this->_index_search_params = search_params_ptr;
@@ -215,7 +218,7 @@ class IndexConfigBuilder
         // sanity check
         if (_dynamic_index && _num_frozen_pts == 0)
         {
-            diskann::cout << "_num_frozen_pts passed as 0 for dynamic_index. Setting it to 1 for safety." << std::endl;
+            std::cout << "_num_frozen_pts passed as 0 for dynamic_index. Setting it to 1 for safety." << std::endl;
             _num_frozen_pts = 1;
         }
 

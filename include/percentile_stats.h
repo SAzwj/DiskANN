@@ -3,9 +3,8 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
-#include <fstream>
+
 #include <functional>
 #ifdef _WINDOWS
 #include <numeric>

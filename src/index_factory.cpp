@@ -1,4 +1,6 @@
 #include "index_factory.h"
+#include "in_mem_data_store.h"
+#include "in_mem_graph_store.h"
 #include "pq_l2_distance.h"
 
 namespace diskann

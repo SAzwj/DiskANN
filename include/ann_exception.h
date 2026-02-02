@@ -6,7 +6,6 @@
 #include <stdexcept>
 #include <system_error>
 #include "windows_customizations.h"
-#include <cstdint>
 
 #ifndef _WINDOWS
 #define __FUNCSIG__ __PRETTY_FUNCTION__
@@ -30,6 +29,6 @@ class FileException : public ANNException
 {
   public:
     DISKANN_DLLEXPORT FileException(const std::string &filename, std::system_error &e, const std::string &funcSig,
-                                    const std::string &fileName, std::uint32_t lineNum);
+                                    const std::string &fileName, uint32_t lineNum);
 };
 } // namespace diskann

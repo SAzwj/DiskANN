@@ -842,7 +842,12 @@ int PQFlashIndex<T, LabelT>::load_from_separate_paths(uint32_t num_threads, cons
         }
 #endif
         parse_label_file(infile, num_pts_in_label_file);
-        assert(num_pts_in_label_file == this->_num_points);
+        if (num_pts_in_label_file != this->_num_points) {
+            diskann::cerr << "Warning: Label file has " << num_pts_in_label_file << " points, but index has " << this->_num_points << " points." << std::endl;
+        }
+        if (num_pts_in_label_file < this->_num_points) {
+             throw diskann::ANNException("Label file has fewer points than index", -1, __FUNCSIG__, __FILE__, __LINE__);
+        }
 
 #ifndef EXEC_ENV_OLS
         infile.close();
@@ -1271,6 +1276,17 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
                                                  const uint32_t io_limit, const bool use_reorder_data,
                                                  QueryStats *stats)
 {
+    cached_beam_search(query1, k_search, l_search, indices, distances, beam_width, use_filter, filter_label, io_limit,
+                       use_reorder_data, nullptr, stats);
+}
+
+template <typename T, typename LabelT>
+void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t k_search, const uint64_t l_search,
+                                                 uint64_t *indices, float *distances, const uint64_t beam_width,
+                                                 const bool use_filter, const LabelT &filter_label,
+                                                 const uint32_t io_limit, const bool use_reorder_data,
+                                                 const tsl::robin_set<uint32_t> *delete_set, QueryStats *stats)
+{
 
     uint64_t num_sector_per_nodes = DIV_ROUND_UP(_max_node_len, defaults::SECTOR_LEN);
     if (beam_width > num_sector_per_nodes * defaults::MAX_N_SECTOR_READS)
@@ -1520,6 +1536,9 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
                 uint32_t id = node_nbrs[m];
                 if (visited.insert(id).second)
                 {
+                    if (delete_set != nullptr && delete_set->find(id) != delete_set->end())
+                        continue;
+
                     if (!use_filter && _dummy_pts.find(id) != _dummy_pts.end())
                         continue;
 
@@ -1583,6 +1602,9 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
                 uint32_t id = node_nbrs[m];
                 if (visited.insert(id).second)
                 {
+                    if (delete_set != nullptr && delete_set->find(id) != delete_set->end())
+                        continue;
+
                     if (!use_filter && _dummy_pts.find(id) != _dummy_pts.end())
                         continue;
 
@@ -1780,6 +1802,20 @@ std::vector<std::uint8_t> PQFlashIndex<T, LabelT>::get_pq_vector(std::uint64_t v
 template <typename T, typename LabelT> std::uint64_t PQFlashIndex<T, LabelT>::get_num_points()
 {
     return _num_points;
+}
+
+template <typename T, typename LabelT>
+LabelT PQFlashIndex<T, LabelT>::get_label(uint32_t id)
+{
+    if (_pts_to_labels == nullptr) {
+        // Fallback to using ID as label if labels are not loaded
+        return (LabelT)id;
+    }
+    
+    if (_pts_to_label_counts[id] == 0) {
+         throw ANNException("Point has no label", -1, __FUNCSIG__, __FILE__, __LINE__);
+    }
+    return _pts_to_labels[_pts_to_label_offsets[id]];
 }
 
 // instantiations

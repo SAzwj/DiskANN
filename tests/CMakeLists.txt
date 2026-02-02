@@ -39,3 +39,5 @@ target_link_libraries(${PROJECT_NAME}_unit_tests ${PROJECT_NAME} ${DISKANN_TOOLS
 
 add_test(NAME ${PROJECT_NAME}_unit_tests COMMAND ${PROJECT_NAME}_unit_tests)
 
+add_executable(test_dynamic_disk_index test_dynamic_disk_index.cpp)
+target_link_libraries(test_dynamic_disk_index ${PROJECT_NAME} ${DISKANN_TOOLS_TCMALLOC_LINK_OPTIONS})
