@@ -382,7 +382,7 @@ int generate_pq_pivots_simplified(const float *train_data, size_t num_train, siz
     {
         size_t chunk_offset = cur_chunk_size * i;
 
-        for (int32_t j = 0; j < num_train; j++)
+        for (size_t j = 0; j < num_train; j++)
         {
             std::memcpy(cur_data + j * cur_chunk_size, train_data + j * dim + chunk_offset,
                         cur_chunk_size * sizeof(float));
@@ -391,7 +391,7 @@ int generate_pq_pivots_simplified(const float *train_data, size_t num_train, siz
         kmeans::kmeanspp_selecting_pivots(cur_data, num_train, cur_chunk_size, cur_pivot_data, num_centers);
 
         kmeans::run_lloyds(cur_data, num_train, cur_chunk_size, cur_pivot_data, num_centers, KMEANS_ITERS_FOR_PQ, NULL,
-                           closest_center);
+                           closest_center, false);
 
         for (uint64_t j = 0; j < num_centers; j++)
         {
@@ -535,7 +535,7 @@ int generate_pq_pivots(const float *const passed_train_data, size_t num_train, u
         kmeans::kmeanspp_selecting_pivots(cur_data.get(), num_train, cur_chunk_size, cur_pivot_data.get(), num_centers);
 
         kmeans::run_lloyds(cur_data.get(), num_train, cur_chunk_size, cur_pivot_data.get(), num_centers,
-                           max_k_means_reps, NULL, closest_center.get());
+                           max_k_means_reps, NULL, closest_center.get(), false);
 
         for (uint64_t j = 0; j < num_centers; j++)
         {
@@ -712,7 +712,7 @@ int generate_opq_pivots(const float *passed_train_data, size_t num_train, uint32
 
             uint32_t num_lloyds_iters = 8;
             kmeans::run_lloyds(cur_data.get(), num_train, cur_chunk_size, cur_pivot_data.get(), num_centers,
-                               num_lloyds_iters, NULL, closest_center.get());
+                               num_lloyds_iters, NULL, closest_center.get(), false);
 
             for (uint64_t j = 0; j < num_centers; j++)
             {
@@ -814,13 +814,13 @@ int generate_pq_data_from_pivots_simplified(const float *data, const size_t num,
     {
         const size_t chunk_offset = chunk_size * i;
 
-        for (int j = 0; j < num_centers; j++)
+        for (size_t j = 0; j < num_centers; j++)
         {
             std::memcpy(cur_pivot_data + j * chunk_size, pivot_data + j * dim + chunk_offset,
                         chunk_size * sizeof(float));
         }
 
-        for (int j = 0; j < num; j++)
+        for (size_t j = 0; j < num; j++)
         {
             for (size_t k = 0; k < chunk_size; k++)
             {
@@ -830,7 +830,7 @@ int generate_pq_data_from_pivots_simplified(const float *data, const size_t num,
 
         math_utils::compute_closest_centers(cur_data, num, chunk_size, cur_pivot_data, num_centers, 1, closest_center);
 
-        for (int j = 0; j < num; j++)
+        for (size_t j = 0; j < num; j++)
         {
             assert(closest_center[j] < num_centers);
             pq[j * num_pq_chunks + i] = closest_center[j];

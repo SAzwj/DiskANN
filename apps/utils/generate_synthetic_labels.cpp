@@ -72,6 +72,7 @@ class ZipfDistribution
         }
         writeDistribution(outfile);
         outfile.close();
+        return 0;
     }
 
   private:

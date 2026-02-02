@@ -2,14 +2,11 @@
 // Licensed under the MIT license.
 
 #pragma once
-#include <atomic>
+
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <queue>
-#include <thread>
-#include <type_traits>
-#include <unordered_set>
 
 namespace diskann
 {

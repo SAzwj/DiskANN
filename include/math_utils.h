@@ -47,12 +47,19 @@ void compute_closest_centers(float *data, size_t num_points, size_t dim, float *
                              size_t k, uint32_t *closest_centers_ivf, std::vector<size_t> *inverted_index = NULL,
                              float *pts_norms_squared = NULL);
 
+void compute_closest_centers_with_distances(float *data, size_t num_points, size_t dim, float *pivot_data,
+                                            size_t num_centers, size_t k, uint32_t *closest_centers_ivf,
+                                            float *closest_centers_dists, std::vector<size_t> *inverted_index = NULL,
+                                            float *pts_norms_squared = NULL);
+
 // if to_subtract is 1, will subtract nearest center from each row. Else will
 // add. Output will be in data_load iself.
 // Nearest centers need to be provided in closst_centers.
 
 void process_residuals(float *data_load, size_t num_points, size_t dim, float *cur_pivot_data, size_t num_centers,
                        uint32_t *closest_centers, bool to_subtract);
+
+DISKANN_DLLEXPORT float estimate_avg_dist_sq(float *data, size_t num_points, size_t dim);
 
 } // namespace math_utils
 
@@ -68,7 +75,8 @@ namespace kmeans
 // Similarly, if closest_docs == NULL, will allocate memory and return.
 
 float lloyds_iter(float *data, size_t num_points, size_t dim, float *centers, size_t num_centers, float *docs_l2sq,
-                  std::vector<size_t> *closest_docs, uint32_t *&closest_center);
+                  std::vector<size_t> *closest_docs, uint32_t *&closest_center, bool enable_balancing,
+                  const float lambda);
 
 // Run Lloyds until max_reps or stopping criterion
 // If you pass NULL for closest_docs and closest_center, it will NOT return
@@ -77,7 +85,8 @@ float lloyds_iter(float *data, size_t num_points, size_t dim, float *centers, si
 // Final centers are output in centers as row major num_centers * dim
 //
 float run_lloyds(float *data, size_t num_points, size_t dim, float *centers, const size_t num_centers,
-                 const size_t max_reps, std::vector<size_t> *closest_docs, uint32_t *closest_center);
+                 const size_t max_reps, std::vector<size_t> *closest_docs, uint32_t *closest_center,
+                 bool enable_balancing = true);
 
 // assumes already memory allocated for pivot_data as new
 // float[num_centers*dim] and select randomly num_centers points as pivots

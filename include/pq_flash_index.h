@@ -2,15 +2,13 @@
 // Licensed under the MIT license.
 
 #pragma once
-#include "common_includes.h"
 
 #include "aligned_file_reader.h"
 #include "concurrent_queue.h"
-#include "neighbor.h"
-#include "parameters.h"
+
 #include "percentile_stats.h"
 #include "pq.h"
-#include "utils.h"
+
 #include "windows_customizations.h"
 #include "scratch.h"
 #include "tsl/robin_map.h"
@@ -81,6 +79,12 @@ template <typename T, typename LabelT = uint32_t> class PQFlashIndex
                                               const uint32_t io_limit, const bool use_reorder_data = false,
                                               QueryStats *stats = nullptr);
 
+    DISKANN_DLLEXPORT void cached_beam_search(const T *query, const uint64_t k_search, const uint64_t l_search,
+                                              uint64_t *res_ids, float *res_dists, const uint64_t beam_width,
+                                              const bool use_filter, const LabelT &filter_label,
+                                              const uint32_t io_limit, const bool use_reorder_data,
+                                              const tsl::robin_set<uint32_t> *delete_set, QueryStats *stats = nullptr);
+
     DISKANN_DLLEXPORT LabelT get_converted_label(const std::string &filter_label);
 
     DISKANN_DLLEXPORT uint32_t range_search(const T *query1, const double range, const uint64_t min_l_search,
@@ -90,7 +94,7 @@ template <typename T, typename LabelT = uint32_t> class PQFlashIndex
 
     DISKANN_DLLEXPORT uint64_t get_data_dim();
 
-    std::shared_ptr<AlignedFileReader> &reader;
+    std::shared_ptr<AlignedFileReader> reader;
 
     DISKANN_DLLEXPORT diskann::Metric get_metric();
 
@@ -107,6 +111,7 @@ template <typename T, typename LabelT = uint32_t> class PQFlashIndex
 
     DISKANN_DLLEXPORT std::vector<std::uint8_t> get_pq_vector(std::uint64_t vid);
     DISKANN_DLLEXPORT uint64_t get_num_points();
+    DISKANN_DLLEXPORT LabelT get_label(uint32_t id);
 
   protected:
     DISKANN_DLLEXPORT void use_medoids_data_as_centroids();

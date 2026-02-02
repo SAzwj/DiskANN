@@ -2,20 +2,13 @@
 // Licensed under the MIT license.
 #pragma once
 
-#include <shared_mutex>
 #include <memory>
 
-#include "tsl/robin_map.h"
-#include "tsl/robin_set.h"
-#include "tsl/sparse_map.h"
 // #include "boost/dynamic_bitset.hpp"
 
 #include "abstract_data_store.h"
 
 #include "distance.h"
-#include "natural_number_map.h"
-#include "natural_number_set.h"
-#include "aligned_file_reader.h"
 
 namespace diskann
 {

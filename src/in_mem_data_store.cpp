@@ -53,8 +53,8 @@ template <typename data_t> location_t InMemDataStore<data_t>::load_impl(AlignedF
     if (file_dim != this->_dim)
     {
         std::stringstream stream;
-        stream << "ERROR: Driver requests loading " << this->_dim << " dimension," << "but file has " << file_dim
-               << " dimension." << std::endl;
+        stream << "ERROR: Driver requests loading " << this->_dim << " dimension,"
+               << "but file has " << file_dim << " dimension." << std::endl;
         diskann::cerr << stream.str() << std::endl;
         aligned_free(_data);
         throw diskann::ANNException(stream.str(), -1, __FUNCSIG__, __FILE__, __LINE__);
@@ -86,8 +86,8 @@ template <typename data_t> location_t InMemDataStore<data_t>::load_impl(const st
     if (file_dim != this->_dim)
     {
         std::stringstream stream;
-        stream << "ERROR: Driver requests loading " << this->_dim << " dimension," << "but file has " << file_dim
-               << " dimension." << std::endl;
+        stream << "ERROR: Driver requests loading " << this->_dim << " dimension,"
+               << "but file has " << file_dim << " dimension." << std::endl;
         diskann::cerr << stream.str() << std::endl;
         aligned_free(_data);
         throw diskann::ANNException(stream.str(), -1, __FUNCSIG__, __FILE__, __LINE__);
@@ -222,7 +222,7 @@ template <typename data_t>
 void InMemDataStore<data_t>::get_distance(const data_t *preprocessed_query, const std::vector<location_t> &ids,
                                           std::vector<float> &distances, AbstractScratch<data_t> *scratch_space) const
 {
-    for (int i = 0; i < ids.size(); i++)
+    for (size_t i = 0; i < ids.size(); i++)
     {
         distances[i] =
             _distance_fn->compare(preprocessed_query, _data + ids[i] * _aligned_dim, (uint32_t)this->_aligned_dim);

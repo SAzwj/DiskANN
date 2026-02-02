@@ -19,12 +19,18 @@
 cmake_minimum_required(VERSION 3.15)
 project(diskann)
 
+# Set default build type to Debug for easier debugging setup
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build (Debug, Release, etc.).")
+endif()
+
 set(CMAKE_STANDARD 17)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(NOT MSVC)
-	set(CMAKE_CXX_COMPILER g++)
+	# Let CMake or user specify the compiler, e.g., clang++.
+	# set(CMAKE_CXX_COMPILER g++)
 endif()
 
 set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake;${CMAKE_MODULE_PATH}")
@@ -80,13 +86,26 @@ if (MSVC)
         "${DISKANN_MSVC_PACKAGES}/intelopenmp.redist.win/runtimes/win-x64/native/libiomp5md.dll"
         "${DISKANN_MSVC_PACKAGES}/intelopenmp.redist.win/runtimes/win-x64/native/libiomp5md.pdb")
 else()
-    find_package(OpenMP)
-
-    if (OPENMP_FOUND)
-        set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-        set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+    # For Clang, FindOpenMP often fails. The -fopenmp flag is usually sufficient
+    # and is added to CMAKE_CXX_FLAGS later in this file. We can skip the check here.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(STATUS "Clang compiler detected. Assuming OpenMP support via -fopenmp flag.")
+        include_directories(/usr/lib/llvm-14/lib/clang/14.0.0/include)
+        link_directories(/usr/lib/llvm-14/lib)
+        set(OpenMP_FOUND ON) # Set this variable to satisfy later logic if any
     else()
-        message(FATAL_ERROR "No OpenMP support")
+        find_package(OpenMP)
+
+        if (OPENMP_FOUND)
+            set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+            set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+            if(OpenMP_CXX_INCLUDE_DIRS)
+                message(STATUS "Found OpenMP, adding include directories for clangd: ${OpenMP_CXX_INCLUDE_DIRS}")
+                include_directories(${OpenMP_CXX_INCLUDE_DIRS})
+            endif()
+        else()
+            message(FATAL_ERROR "No OpenMP support")
+        endif()
     endif()
 endif()
 
@@ -186,7 +205,8 @@ else()
     include_directories(${MKL_INCLUDE_PATH})
 
     # compile flags and link libraries
-    add_compile_options(-m64 -Wl,--no-as-needed)
+    add_compile_options(-m64)
+    add_link_options(-Wl,--no-as-needed)
     if (NOT PYBIND)
         link_libraries(mkl_intel_ilp64 mkl_intel_thread mkl_core iomp5 pthread m dl)
     else()

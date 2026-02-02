@@ -3,13 +3,9 @@
 
 #include <omp.h>
 
-#include <type_traits>
-
 #include "boost/dynamic_bitset.hpp"
 #include "index_factory.h"
-#include "memory_mapper.h"
 #include "timer.h"
-#include "tsl/robin_map.h"
 #include "tsl/robin_set.h"
 #include "windows_customizations.h"
 #include "tag_uint128.h"
@@ -35,10 +31,10 @@ Index<T, TagT, LabelT>::Index(const IndexConfig &index_config, std::shared_ptr<A
                               std::shared_ptr<AbstractDataStore<T>> pq_data_store)
     : _dist_metric(index_config.metric), _dim(index_config.dimension), _max_points(index_config.max_points),
       _num_frozen_pts(index_config.num_frozen_pts), _dynamic_index(index_config.dynamic_index),
-      _enable_tags(index_config.enable_tags), _indexingMaxC(DEFAULT_MAXC), _query_scratch(nullptr),
-      _pq_dist(index_config.pq_dist_build), _use_opq(index_config.use_opq),
-      _filtered_index(index_config.filtered_index), _num_pq_chunks(index_config.num_pq_chunks),
-      _delete_set(new tsl::robin_set<uint32_t>), _conc_consolidate(index_config.concurrent_consolidate)
+      _enable_tags(index_config.enable_tags), _filtered_index(index_config.filtered_index), _indexingMaxC(DEFAULT_MAXC),
+      _query_scratch(nullptr), _pq_dist(index_config.pq_dist_build), _use_opq(index_config.use_opq),
+      _num_pq_chunks(index_config.num_pq_chunks), _delete_set(new tsl::robin_set<uint32_t>),
+      _conc_consolidate(index_config.concurrent_consolidate)
 {
     if (_dynamic_index && !_enable_tags)
     {
@@ -426,8 +422,8 @@ size_t Index<T, TagT, LabelT>::load_tags(const std::string tag_filename)
     if (file_dim != 1)
     {
         std::stringstream stream;
-        stream << "ERROR: Found " << file_dim << " dimensions for tags," << "but tag file must have 1 dimension."
-               << std::endl;
+        stream << "ERROR: Found " << file_dim << " dimensions for tags,"
+               << "but tag file must have 1 dimension." << std::endl;
         diskann::cerr << stream.str() << std::endl;
         delete[] tag_data;
         throw diskann::ANNException(stream.str(), -1, __FUNCSIG__, __FILE__, __LINE__);
@@ -478,8 +474,8 @@ size_t Index<T, TagT, LabelT>::load_data(std::string filename)
     if (file_dim != _dim)
     {
         std::stringstream stream;
-        stream << "ERROR: Driver requests loading " << _dim << " dimension," << "but file has " << file_dim
-               << " dimension." << std::endl;
+        stream << "ERROR: Driver requests loading " << _dim << " dimension,"
+               << "but file has " << file_dim << " dimension." << std::endl;
         diskann::cerr << stream.str() << std::endl;
         throw diskann::ANNException(stream.str(), -1, __FUNCSIG__, __FILE__, __LINE__);
     }
@@ -1521,6 +1517,58 @@ void Index<T, TagT, LabelT>::set_start_points_at_random(T radius, uint32_t rando
 }
 
 template <typename T, typename TagT, typename LabelT>
+void Index<T, TagT, LabelT>::init_empty_index()
+{
+    std::unique_lock<std::shared_timed_mutex> ul(_update_lock);
+    std::unique_lock<std::shared_timed_mutex> tl(_tag_lock);
+    std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
+
+    _has_built = true;
+    _nd = 0;
+    _empty_slots.clear();
+    for (int64_t i = (int64_t)_max_points - 1; i >= 0; i--)
+    {
+        _empty_slots.insert((uint32_t)i);
+    }
+    _delete_set->clear();
+    for (uint32_t i = 0; i < _max_points + _num_frozen_pts; i++)
+    {
+        _graph_store->clear_neighbours((location_t)i);
+    }
+    _tag_to_location.clear();
+    _location_to_tag.clear();
+    _data_compacted = true;
+
+    if (_filtered_index)
+    {
+        for (auto &labels : _location_to_labels)
+        {
+            labels.clear();
+        }
+        _labels.clear();
+        _label_to_start_id.clear();
+        _medoid_counts.clear();
+        _frozen_pts_used = 0;
+    }
+
+    // Initialize scratch space if needed
+    if (_query_scratch.size() == 0)
+    {
+        initialize_query_scratch(_indexingThreads + 5, _indexingQueueSize, _indexingQueueSize, _indexingRange, _indexingMaxC, _dim);
+    }
+
+    if (_num_frozen_pts > 0)
+    {
+        _start = (uint32_t)_max_points;
+        std::vector<T> zero_vec(_dim, 0);
+        for (uint32_t i = 0; i < _num_frozen_pts; i++)
+        {
+            _data_store->set_vector((location_t)(_max_points + i), zero_vec.data());
+        }
+    }
+}
+
+template <typename T, typename TagT, typename LabelT>
 void Index<T, TagT, LabelT>::build_with_data_populated(const std::vector<TagT> &tags)
 {
     diskann::cout << "Starting index build with " << _nd << " points... " << std::endl;
@@ -1531,8 +1579,8 @@ void Index<T, TagT, LabelT>::build_with_data_populated(const std::vector<TagT> &
     if (_enable_tags && tags.size() != _nd)
     {
         std::stringstream stream;
-        stream << "ERROR: Driver requests loading " << _nd << " points from file," << "but tags vector is of size "
-               << tags.size() << "." << std::endl;
+        stream << "ERROR: Driver requests loading " << _nd << " points from file,"
+               << "but tags vector is of size " << tags.size() << "." << std::endl;
         diskann::cerr << stream.str() << std::endl;
         throw diskann::ANNException(stream.str(), -1, __FUNCSIG__, __FILE__, __LINE__);
     }
@@ -1645,8 +1693,8 @@ void Index<T, TagT, LabelT>::build(const char *filename, const size_t num_points
     {
         std::stringstream stream;
         stream << "ERROR: Driver requests loading " << num_points_to_load << " points and file has " << file_num_points
-               << " points, but " << "index can support only " << _max_points << " points as specified in constructor."
-               << std::endl;
+               << " points, but "
+               << "index can support only " << _max_points << " points as specified in constructor." << std::endl;
 
         throw diskann::ANNException(stream.str(), -1, __FUNCSIG__, __FILE__, __LINE__);
     }
@@ -1663,8 +1711,8 @@ void Index<T, TagT, LabelT>::build(const char *filename, const size_t num_points
     if (file_dim != _dim)
     {
         std::stringstream stream;
-        stream << "ERROR: Driver requests loading " << _dim << " dimension," << "but file has " << file_dim
-               << " dimension." << std::endl;
+        stream << "ERROR: Driver requests loading " << _dim << " dimension,"
+               << "but file has " << file_dim << " dimension." << std::endl;
         diskann::cerr << stream.str() << std::endl;
 
         throw diskann::ANNException(stream.str(), -1, __FUNCSIG__, __FILE__, __LINE__);
@@ -1749,7 +1797,6 @@ void Index<T, TagT, LabelT>::build(const std::string &data_file, const size_t nu
                                    IndexFilterParams &filter_params)
 {
     size_t points_to_load = num_points_to_load == 0 ? _max_points : num_points_to_load;
-
     auto s = std::chrono::high_resolution_clock::now();
     if (filter_params.label_file == "")
     {
@@ -1985,8 +2032,8 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::search(const T *query, con
 
     if (L > scratch->get_L())
     {
-        diskann::cout << "Attempting to expand query scratch_space. Was created " << "with Lsize: " << scratch->get_L()
-                      << " but search L is: " << L << std::endl;
+        diskann::cout << "Attempting to expand query scratch_space. Was created "
+                      << "with Lsize: " << scratch->get_L() << " but search L is: " << L << std::endl;
         scratch->resize_for_new_L(L);
         diskann::cout << "Resize completed. New scratch->L is " << scratch->get_L() << std::endl;
     }
@@ -2072,8 +2119,8 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::search_with_filters(const 
 
     if (L > scratch->get_L())
     {
-        diskann::cout << "Attempting to expand query scratch_space. Was created " << "with Lsize: " << scratch->get_L()
-                      << " but search L is: " << L << std::endl;
+        diskann::cout << "Attempting to expand query scratch_space. Was created "
+                      << "with Lsize: " << scratch->get_L() << " but search L is: " << L << std::endl;
         scratch->resize_for_new_L(L);
         diskann::cout << "Resize completed. New scratch->L is " << scratch->get_L() << std::endl;
     }
@@ -2170,8 +2217,8 @@ size_t Index<T, TagT, LabelT>::search_with_tags(const T *query, const uint64_t K
 
     if (L > scratch->get_L())
     {
-        diskann::cout << "Attempting to expand query scratch_space. Was created " << "with Lsize: " << scratch->get_L()
-                      << " but search L is: " << L << std::endl;
+        diskann::cout << "Attempting to expand query scratch_space. Was created "
+                      << "with Lsize: " << scratch->get_L() << " but search L is: " << L << std::endl;
         scratch->resize_for_new_L(L);
         diskann::cout << "Resize completed. New scratch->L is " << scratch->get_L() << std::endl;
     }
@@ -2301,9 +2348,9 @@ template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>
 
     if (_data_compacted)
     {
-        for (uint32_t slot = (uint32_t)_nd; slot < _max_points; ++slot)
+        for (int64_t slot = (int64_t)_max_points - 1; slot >= (int64_t)_nd; --slot)
         {
-            _empty_slots.insert(slot);
+            _empty_slots.insert((uint32_t)slot);
         }
     }
     this->_deletes_enabled = true;
@@ -2623,7 +2670,7 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
 
     _empty_slots.clear();
     // mark all slots after _nd as empty
-    for (auto i = _nd; i < _max_points; i++)
+    for (int64_t i = (int64_t)_max_points - 1; i >= (int64_t)_nd; i--)
     {
         _empty_slots.insert((uint32_t)i);
     }
@@ -2732,6 +2779,12 @@ void Index<T, TagT, LabelT>::reposition_points(uint32_t old_location_start, uint
         // to avoid modifying locations that are yet to be copied.
         for (uint32_t loc_offset = 0; loc_offset < num_locations; loc_offset++)
         {
+            if (!_graph_store->get_neighbours(new_location_start + loc_offset).empty()) {
+                auto neighbors = _graph_store->get_neighbours(new_location_start + loc_offset);
+                diskann::cerr << "Error: Reposition target " << new_location_start + loc_offset << " is not empty! Neighbors: ";
+                for (auto n : neighbors) diskann::cerr << n << " ";
+                diskann::cerr << std::endl;
+            }
             assert(_graph_store->get_neighbours(new_location_start + loc_offset).empty());
             _graph_store->swap_neighbours(new_location_start + loc_offset, old_location_start + loc_offset);
             if (_dynamic_index && _filtered_index)
@@ -2818,7 +2871,7 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
 
     _max_points = new_max_points;
     _empty_slots.reserve(_max_points);
-    for (auto i = _nd; i < _max_points; i++)
+    for (int64_t i = (int64_t)_max_points - 1; i >= (int64_t)_nd; i--)
     {
         _empty_slots.insert((uint32_t)i);
     }

@@ -64,8 +64,8 @@ int main(int argc, char **argv)
     size_t nblks = ROUND_UP(npts, blk_size) / blk_size;
     std::cout << "# blks: " << nblks << std::endl;
     std::ofstream writer(argv[3], std::ios::binary);
-    int32_t npts_s32 = (int32_t)npts;
-    int32_t ndims_s32 = (int32_t)ndims;
+    int32_t npts_s32 = (int32_t)npts;   // 多少个向量
+    int32_t ndims_s32 = (int32_t)ndims; // 向量维度
     writer.write((char *)&npts_s32, sizeof(int32_t));
     writer.write((char *)&ndims_s32, sizeof(int32_t));
 
