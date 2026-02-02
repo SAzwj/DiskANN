@@ -10,8 +10,46 @@
 namespace diskann {
 
 template<typename T, typename LabelT>
-DynamicDiskIndex<T, LabelT>::DynamicDiskIndex(const IndexConfig& config, const std::string& data_file_path, const std::string& disk_index_path, size_t mem_index_threshold)
+DynamicDiskIndex<T, LabelT>::DynamicDiskIndex(const IndexConfig& config, const std::string& data_file_path, const std::string& disk_index_path, size_t mem_index_threshold, double max_ram_budget_gb)
     : _config(config), _data_file_path(data_file_path), _disk_index_path(disk_index_path), _mem_index_threshold(mem_index_threshold) {
+
+    if (_mem_index_threshold == 0) {
+        if (max_ram_budget_gb > 0) {
+            uint32_t dim = (uint32_t)_config.dimension;
+            uint32_t degree = (uint32_t)_config.index_write_params->max_degree;
+            // Determine datasize based on T
+            uint32_t datasize = sizeof(T);
+            
+            // Replicate estimate_ram_usage logic for one point
+            // estimate_ram_usage(size, dim, datasize, degree) = 
+            // OVERHEAD_FACTOR * size * (
+            //    ROUND_UP(dim, 8) * datasize + 
+            //    degree * sizeof(uint32_t) * defaults::GRAPH_SLACK_FACTOR + 
+            //    sizeof(non_recursive_mutex) + 
+            //    sizeof(ptrdiff_t)
+            // )
+            
+            double per_point_usage = OVERHEAD_FACTOR * (
+                ROUND_UP(dim, 8) * datasize +
+                degree * sizeof(uint32_t) * defaults::GRAPH_SLACK_FACTOR +
+                sizeof(non_recursive_mutex) +
+                sizeof(ptrdiff_t)
+            );
+
+            // 用户提供的是总搜索内存预算。我们分配一小部分（例如 20%）
+            // 给动态内存索引，以避免与磁盘缓存结合使用时发生 OOM。
+            // 剩下的 80% 留给磁盘索引的缓存和其他开销。
+            const double DYNAMIC_INDEX_MEMORY_RATIO = 0.2;
+            double budget_bytes = (max_ram_budget_gb * 1024.0 * 1024.0 * 1024.0) * DYNAMIC_INDEX_MEMORY_RATIO;
+            _mem_index_threshold = (size_t)(budget_bytes / per_point_usage);
+            
+            std::cout << "DynamicDiskIndex: 根据预算 " << max_ram_budget_gb 
+                      << " GB 计算内存阈值 (使用 " << (DYNAMIC_INDEX_MEMORY_RATIO * 100) << "% 作为动态索引): " 
+                      << _mem_index_threshold << " 个点。" << std::endl;
+        } else {
+             throw diskann::ANNException("DynamicDiskIndex: 必须提供 mem_index_threshold 或 max_ram_budget_gb 且大于 0", -1, __FUNCSIG__, __FILE__, __LINE__);
+        }
+    }
     
     // 设置内存索引的最大容量
     size_t max_points = _mem_index_threshold * 2;

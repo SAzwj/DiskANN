@@ -13,7 +13,7 @@ namespace diskann {
 template<typename T, typename LabelT = uint32_t>
 class DynamicDiskIndex {
 public:
-    DISKANN_DLLEXPORT DynamicDiskIndex(const IndexConfig& config, const std::string& data_file_path, const std::string& disk_index_path, size_t mem_index_threshold);
+    DISKANN_DLLEXPORT DynamicDiskIndex(const IndexConfig& config, const std::string& data_file_path, const std::string& disk_index_path, size_t mem_index_threshold = 0, double max_ram_budget_gb = 0);
     DISKANN_DLLEXPORT ~DynamicDiskIndex();
 
     // 插入
