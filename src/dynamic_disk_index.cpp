@@ -6,12 +6,20 @@
 #include <algorithm>
 #include <future>
 #include <thread>
+#include <fstream>
 
 namespace diskann {
 
+// Helper function to copy file reliably
+void copy_file_impl(const std::string& src, const std::string& dst) {
+    std::ifstream src_stream(src, std::ios::binary);
+    std::ofstream dst_stream(dst, std::ios::binary | std::ios::trunc);
+    dst_stream << src_stream.rdbuf();
+}
+
 template<typename T, typename LabelT>
 DynamicDiskIndex<T, LabelT>::DynamicDiskIndex(const IndexConfig& config, const std::string& data_file_path, const std::string& disk_index_path, size_t mem_index_threshold, double max_ram_budget_gb)
-    : _config(config), _data_file_path(data_file_path), _disk_index_path(disk_index_path), _mem_index_threshold(mem_index_threshold) {
+    : _data_file_path(data_file_path), _disk_index_path(disk_index_path), _config(config), _mem_index_threshold(mem_index_threshold) {
 
     if (_mem_index_threshold == 0) {
         if (max_ram_budget_gb > 0) {
@@ -105,12 +113,43 @@ void DynamicDiskIndex<T, LabelT>::load_disk_index() {
     // 构建磁盘索引标签到内部 ID 的映射
     size_t num_points = _disk_index->get_num_points();
     _disk_label_to_id.clear();
-    for (uint32_t i = 0; i < num_points; ++i) {
-        try {
-            LabelT label = _disk_index->get_label(i);
-            _disk_label_to_id[label] = i;
-        } catch (...) {
-            // 忽略读取标签失败的点
+    
+    // 优先尝试读取我们维护的 _labels.txt
+    std::string label_file_path = _disk_index_path + "_labels.txt";
+    std::vector<LabelT> labels;
+    bool loaded_from_file = false;
+
+    if (file_exists(label_file_path)) {
+        std::ifstream label_reader(label_file_path);
+        if (label_reader.is_open()) {
+            std::string line;
+            while (std::getline(label_reader, line)) {
+                if (!line.empty()) {
+                    try {
+                         labels.push_back((LabelT)std::stoul(line));
+                    } catch (...) {}
+                }
+            }
+            if (labels.size() == num_points) {
+                loaded_from_file = true;
+                for (uint32_t i = 0; i < num_points; ++i) {
+                    _disk_label_to_id[labels[i]] = i;
+                }
+                // diskann::cout << "Loaded " << num_points << " labels from " << label_file_path << std::endl;
+            } else {
+                 diskann::cerr << "Warning: Label file size (" << labels.size() << ") mismatch with index size (" << num_points << "). Fallback to index labels." << std::endl;
+            }
+        }
+    }
+
+    if (!loaded_from_file) {
+        for (uint32_t i = 0; i < num_points; ++i) {
+            try {
+                LabelT label = _disk_index->get_label(i);
+                _disk_label_to_id[label] = i;
+            } catch (...) {
+                // 忽略读取标签失败的点
+            }
         }
     }
 }
@@ -221,7 +260,6 @@ void DynamicDiskIndex<T, LabelT>::search(const T* query, size_t k, size_t l, uin
     }
 
     // 过滤磁盘索引结果
-    size_t valid_disk_count = 0;
     for (size_t i = 0; i < k; ++i) {
         if (disk_distances[i] == std::numeric_limits<float>::max()) continue;
 
@@ -366,11 +404,9 @@ void DynamicDiskIndex<T, LabelT>::merge() {
 
         // 定位到末尾并写入新数据
         data_writer.seekp(0, std::ios::end);
-        size_t pos_before_write = data_writer.tellp();
         for (size_t i = 0; i < num_active_points; ++i) {
              data_writer.write((char*)(mem_data.get() + i * mem_dim), mem_dim * sizeof(T));
         }
-        size_t pos_after_write = data_writer.tellp();
 
         // 更新数据文件头的总点数
         int32_t new_num_points_i32 = (int32_t)(file_num_points + num_active_points);
@@ -412,6 +448,10 @@ void DynamicDiskIndex<T, LabelT>::merge() {
 
     // 如果读取的标签少于初始点数，补充默认标签（ID）
     if (existing_labels.size() < initial_points) {
+        diskann::cerr << "Merge CRITICAL WARNING: Label count (" << existing_labels.size() 
+                      << ") < initial points (" << initial_points 
+                      << "). Padding with sequential IDs. This implies DATA LOSS for labels!" << std::endl;
+                      
         for (size_t i = existing_labels.size(); i < initial_points; ++i) {
             existing_labels.push_back((LabelT)i);
         }
@@ -465,7 +505,16 @@ void DynamicDiskIndex<T, LabelT>::merge() {
     // 我们需要用正确的标签文件覆盖 build_disk_index 生成的错误标签文件
     // 假设 build_disk_index 保持了点的原始顺序（merge_shards 似乎是这样做的）
     std::string bad_label_file = _disk_index_path + "_disk.index_labels.txt";
-    copy_file(label_file_path, bad_label_file);
+    copy_file_impl(label_file_path, bad_label_file);
+    
+    // 同时也覆盖可能被 DiskANN 内部生成的其他命名格式的标签文件
+    // 以及最重要的：如果 build_disk_index 修改了 label_file_path 本身（虽然不应该），
+    // 这里的 copy_file_impl(label_file_path, ...) 前提是 label_file_path 内容还是对的。
+    // 如果 build_disk_index 损坏了 label_file_path，我们需要在 build 之前备份。
+    // 但鉴于我们没有备份，我们假设 label_file_path 还是好的（它是输入参数）。
+    // 如果它是好的，那么我们只需要覆盖 bad_label_file。
+    // 并且为了保险，如果 PQFlashIndex::load 加载的是其他路径，我们最好能知道。
+    // 但有了 load_disk_index 中的优先读取逻辑，这里只要 label_file_path 是对的就行。
 
     // 重新加载索引并重置内存状态
     load_disk_index();

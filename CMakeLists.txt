@@ -60,7 +60,7 @@ endif()
 include_directories(${PROJECT_SOURCE_DIR}/include)
 
 if(NOT PYBIND)
-    set(DISKANN_RELEASE_UNUSED_TCMALLOC_MEMORY_AT_CHECKPOINTS ON)
+    set(DISKANN_RELEASE_UNUSED_TCMALLOC_MEMORY_AT_CHECKPOINTS OFF)
 endif()
 # It's necessary to include tcmalloc headers only if calling into MallocExtension interface.
 # For using tcmalloc in DiskANN tools, it's enough to just link with tcmalloc.
@@ -115,7 +115,14 @@ if (MSVC)
     set(Boost_USE_STATIC_LIBS ON)
 endif()
 
+if(DEFINED WITH_BOOST)
+    set(BOOST_ROOT "${WITH_BOOST}")
+    set(BOOST_INCLUDEDIR "${WITH_BOOST}")
+    set(BOOST_LIBRARYDIR "${WITH_BOOST}/stage/lib")
+endif()
+
 if(NOT MSVC)
+    set(Boost_USE_STATIC_LIBS ON)
     find_package(Boost COMPONENTS program_options)
 endif()
 
@@ -268,7 +275,7 @@ if (MSVC)
 
     set(DISKANN_TOOLS_TCMALLOC_LINK_OPTIONS libtcmalloc_minimal_for_exe)
 elseif(NOT PYBIND)
-    set(DISKANN_TOOLS_TCMALLOC_LINK_OPTIONS "-ltcmalloc")
+    # set(DISKANN_TOOLS_TCMALLOC_LINK_OPTIONS "-ltcmalloc")
 endif()
 
 if (DISKANN_RELEASE_UNUSED_TCMALLOC_MEMORY_AT_CHECKPOINTS)
@@ -306,7 +313,7 @@ if(MSVC)
 	set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_RELEASE ${PROJECT_SOURCE_DIR}/x64/Release)
 else()
     set(ENV{TCMALLOC_LARGE_ALLOC_REPORT_THRESHOLD} 500000000000)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mfma -msse2 -ftree-vectorize -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fopenmp -fopenmp-simd -funroll-loops -Wfatal-errors -DUSE_AVX2")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mfma -msse2 -ftree-vectorize -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fopenmp -fopenmp-simd -funroll-loops -Wfatal-errors -DUSE_AVX2 -Wno-error=deprecated-declarations")
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g -DDEBUG")
     if (NOT PYBIND)
         set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DNDEBUG -Ofast")
