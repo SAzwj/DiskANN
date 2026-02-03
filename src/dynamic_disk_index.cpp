@@ -19,7 +19,7 @@ void copy_file_impl(const std::string& src, const std::string& dst) {
 
 template<typename T, typename LabelT>
 DynamicDiskIndex<T, LabelT>::DynamicDiskIndex(const IndexConfig& config, const std::string& data_file_path, const std::string& disk_index_path, size_t mem_index_threshold, double max_ram_budget_gb)
-    : _data_file_path(data_file_path), _disk_index_path(disk_index_path), _config(config), _mem_index_threshold(mem_index_threshold) {
+    : _data_file_path(data_file_path), _disk_index_path(disk_index_path), _config(config), _mem_index_threshold(mem_index_threshold), _max_ram_budget_gb(max_ram_budget_gb) {
 
     if (_mem_index_threshold == 0) {
         if (max_ram_budget_gb > 0) {
@@ -423,7 +423,19 @@ void DynamicDiskIndex<T, LabelT>::merge() {
     }
 
     // 设置磁盘索引构建参数 (R L B M T)
-    std::string params = "32 50 0.003 0.001 " + std::to_string(std::thread::hardware_concurrency()); 
+    // 动态计算内存预算
+    // B (Indexing RAM): 总预算的 70%
+    // M (PQ Build RAM): 总预算的 70% (串行阶段，可复用)
+    double build_ram_gb = std::max(0.003, _max_ram_budget_gb * 0.7);
+    double pq_ram_gb = std::max(0.001, _max_ram_budget_gb * 0.7);
+    
+    uint32_t R = _config.index_write_params->max_degree;
+    uint32_t L = _config.index_write_params->search_list_size;
+
+    std::string params = std::to_string(R) + " " + std::to_string(L) + " " + 
+                         std::to_string(build_ram_gb) + " " + std::to_string(pq_ram_gb) + " " + 
+                         std::to_string(std::thread::hardware_concurrency());
+                         
     std::string label_file_path = _disk_index_path + "_labels.txt";
     
     // 处理标签文件：确保标签文件与数据文件（合并前）的点数一致，然后追加新标签
@@ -534,6 +546,16 @@ void DynamicDiskIndex<T, LabelT>::merge() {
     std::remove(temp_mem_tags_path.c_str());
 
     diskann::cout << "合并成功完成。" << std::endl;
+}
+
+template<typename T, typename LabelT>
+uint32_t DynamicDiskIndex<T, LabelT>::get_R() const {
+    return _config.index_write_params->max_degree;
+}
+
+template<typename T, typename LabelT>
+uint32_t DynamicDiskIndex<T, LabelT>::get_L() const {
+    return _config.index_write_params->search_list_size;
 }
 
 // 模板类显式实例化

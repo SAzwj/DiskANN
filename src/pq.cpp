@@ -9,6 +9,7 @@
 #include "partition.h"
 #include "math_utils.h"
 #include "tsl/robin_map.h"
+#include <iostream>
 
 // block size for reading/processing large files and matrices in blocks
 #define BLOCK_SIZE 5000000
@@ -280,6 +281,8 @@ void FixedChunkPQTable::populate_chunk_inner_products(const float *query_vec, fl
 
 void aggregate_coords(const std::vector<uint32_t> &ids, const uint8_t *all_coords, const size_t ndims, uint8_t *out)
 {
+    // Debug log
+    // std::cout << "aggregate_coords (vector): n_ids=" << ids.size() << ", ndims=" << ndims << std::endl;
     for (size_t i = 0; i < ids.size(); i++)
     {
         memcpy(out + i * ndims, all_coords + ids[i] * ndims, ndims * sizeof(uint8_t));
@@ -315,6 +318,12 @@ void pq_dist_lookup(const uint8_t *pq_ids, const size_t n_pts, const size_t pq_n
 void aggregate_coords(const uint32_t *ids, const size_t n_ids, const uint8_t *all_coords, const size_t ndims,
                       uint8_t *out)
 {
+    // Debug log
+    if (n_ids > 1000000) {
+        std::cerr << "CRITICAL ERROR: aggregate_coords n_ids=" << n_ids << " seems invalid! ndims=" << ndims << std::endl;
+        if (ids) std::cerr << "First ID: " << ids[0] << std::endl;
+    }
+    
     for (size_t i = 0; i < n_ids; i++)
     {
         memcpy(out + i * ndims, all_coords + ids[i] * ndims, ndims * sizeof(uint8_t));

@@ -28,6 +28,10 @@ public:
     // 合并
     DISKANN_DLLEXPORT void merge();
 
+    // 获取配置参数
+    DISKANN_DLLEXPORT uint32_t get_R() const;
+    DISKANN_DLLEXPORT uint32_t get_L() const;
+
 private:
     std::shared_ptr<Index<T, LabelT>> _mem_index;
     std::shared_ptr<PQFlashIndex<T, LabelT>> _disk_index;
@@ -44,6 +48,7 @@ private:
     std::string _disk_index_path;
     IndexConfig _config;
     size_t _mem_index_threshold;
+    double _max_ram_budget_gb = 0.05; // Store total budget
     
     // 辅助函数：加载磁盘索引并构建 Label -> ID 映射
     void load_disk_index();

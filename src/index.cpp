@@ -1605,6 +1605,43 @@ void Index<T, TagT, LabelT>::build_with_data_populated(const std::vector<TagT> &
     }
 
     generate_frozen_point();
+
+    // Vamana 算法要求从随机图开始。
+    // 如果没有初始化图，孤立点（特别是起始点）在 link 阶段将找不到邻居，导致 pruned_list 为空并触发断言。
+    // 之前可能因为数据量小或巧合未触发，但在严格的内存限制和大数据量下暴露了此问题。
+    {
+        diskann::cout << "Initializing random graph..." << std::endl;
+        #pragma omp parallel for
+        for (int64_t i = 0; i < (int64_t)_nd; i++) {
+            std::vector<uint32_t> nbrs;
+            nbrs.reserve(_indexingRange);
+            
+            if (_nd <= _indexingRange + 1) {
+                for(uint32_t j=0; j<_nd; ++j) {
+                    if(j != i) nbrs.push_back(j);
+                }
+            } else {
+                // 简单的伪随机数生成器 (LCG)
+                uint64_t state = (i + 1) * 0x9e3779b97f4a7c15; 
+                auto rand_next = [&state]() {
+                    state = state * 6364136223846793005ULL + 1442695040888963407ULL;
+                    return (uint32_t)(state >> 32);
+                };
+
+                // 为每个点随机分配 R 个邻居
+                while(nbrs.size() < _indexingRange) {
+                    uint32_t n = rand_next() % _nd;
+                    if(n != i) {
+                        bool exists = false;
+                        for(auto x : nbrs) if(x == n) { exists = true; break; }
+                        if(!exists) nbrs.push_back(n);
+                    }
+                }
+            }
+            _graph_store->set_neighbours((location_t)i, nbrs);
+        }
+    }
+
     link();
 
     size_t max = 0, min = SIZE_MAX, total = 0, cnt = 0;
